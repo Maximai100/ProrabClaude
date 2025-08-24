@@ -9,9 +9,9 @@ import { QueryClient, QueryClientProvider, useQuery, useMutation, useQueryClient
 import toast, { Toaster } from 'react-hot-toast';
 import { useForm } from 'react-hook-form';
 import clsx from 'clsx';
-import { Eye, EyeOff, Plus, Search, Filter, FolderOpen, ArrowLeft, Edit, FileText, Receipt, Menu, X, User, LogOut, Settings, CreditCard, Trash2, Banknote } from 'lucide-react';
+import { Eye, EyeOff, Plus, Search, Filter, FolderOpen, ArrowLeft, Edit, FileText, Receipt, Menu, X, User, LogOut, Settings, CreditCard, Trash2, Banknote, Share2, Printer, CheckCircle } from 'lucide-react';
 import { Transition, Dialog } from '@headlessui/react';
-import { format } from 'date-fns';
+import { format, addDays } from 'date-fns';
 
 // --- TYPES ---
 
@@ -37,7 +37,7 @@ interface Project { id: number; userId: number; title: string; address: string; 
 interface Expense { id: number; project_id: number; amount: string; description: string; receipt_photo?: string; expense_date: string; created_at: string; }
 interface ProjectPayment { id: number; project_id: number; amount: string; description: string; payment_date: string; created_at: string; }
 interface QuoteItem { id: number; quote_id: number; name: string; type: 'work' | 'material'; unit: string; quantity: string; unit_price: string; total_price: string; order: number; created_at: string; }
-interface Quote { id: number; project_id: number; title: string; public_id: string; notes: string; total_amount: string; work_amount: string; material_amount: string; items: QuoteItem[]; project_title: string; client_name?: string; created_at: string; updated_at: string; }
+interface Quote { id: number; project_id: number; title: string; public_id: string; notes: string; total_amount: string; work_amount: string; material_amount: string; items: QuoteItem[]; project_title: string; client_name?: string; contractor?: Partial<User>, created_at: string; updated_at: string; }
 interface ProjectDetail extends Project { quotes: Quote[]; expenses: Expense[]; payments_received: ProjectPayment[]; }
 
 // --- MOCK API & DATABASE ---
@@ -75,13 +75,24 @@ const mockDb = {
     ]
 };
 
+const checkUserAccess = (user: any) => {
+    if (!user.access_expires_at) {
+        user.has_active_access = false;
+        return user;
+    }
+    const expires = new Date(user.access_expires_at);
+    user.has_active_access = expires > new Date();
+    return user;
+}
+
 const mockApi = {
   // ... auth, project, client methods
   login: (data: LoginData): Promise<AuthResponse> => new Promise((resolve, reject) => {
     setTimeout(() => {
         const user = mockDb.users.find(u => u.email === data.email && u.password === data.password);
         if (user) {
-            const { password, ...userWithoutPassword } = user;
+            const checkedUser = checkUserAccess(user);
+            const { password, ...userWithoutPassword } = checkedUser;
             const fullUser = { ...userWithoutPassword, display_name: `${user.first_name} ${user.last_name}`};
             resolve({ user: fullUser, tokens: { access: 'mock_access_token', refresh: 'mock_refresh_token' } });
         } else {
@@ -115,8 +126,9 @@ const mockApi = {
   }),
   getProfile: (userId: number): Promise<User> => new Promise((resolve, reject) => {
       setTimeout(() => {
-          const user = mockDb.users.find(u => u.id === userId);
+          let user = mockDb.users.find(u => u.id === userId);
           if (user) {
+              user = checkUserAccess(user);
               const { password, ...userWithoutPassword } = user;
               resolve({ ...userWithoutPassword, display_name: `${user.first_name} ${user.last_name}`});
           } else {
@@ -144,7 +156,7 @@ const mockApi = {
             projects = projects.filter(p => p.status === params.status);
         }
         if (params.search) {
-            projects = projects.filter(p => p.title.toLowerCase().includes(params.search.toLowerCase()) || p.address.toLowerCase().includes(params.search.toLowerCase()));
+            projects = projects.filter(p => p.title.toLowerCase().includes(params.search!.toLowerCase()) || p.address.toLowerCase().includes(params.search!.toLowerCase()));
         }
         const projectsWithData = projects.map(p => ({...p, client: mockDb.clients.find(c => c.id === p.client_id)}));
         resolve(projectsWithData.map(p => calculateProjectTotals(p, p.userId)));
@@ -200,6 +212,30 @@ const mockApi = {
           resolve(newClient);
       }, 500);
   }),
+    getPublicQuote: (publicId: string): Promise<Quote> => new Promise((resolve, reject) => {
+        setTimeout(() => {
+            const quote = mockDb.quotes.find(q => q.public_id === publicId);
+            if (!quote) return reject(new Error("Quote not found"));
+            const project = mockDb.projects.find(p => p.id === quote.project_id);
+            if (!project) return reject(new Error("Project not found for quote"));
+
+            const contractor = mockDb.users.find(u => u.id === project.userId);
+            const client = mockDb.clients.find(c => c.id === project.client_id);
+
+            const quoteWithData = {
+                ...quote,
+                project_title: project.title,
+                client_name: client?.name,
+                contractor: {
+                    company_name: contractor?.company_name,
+                    display_name: `${contractor?.first_name} ${contractor?.last_name}`,
+                    phone: contractor?.phone,
+                    email: contractor?.email,
+                }
+            };
+            resolve(calculateQuoteTotals(quoteWithData, project.userId));
+        }, 300);
+    }),
   getQuote: (userId: number, id: number): Promise<Quote> => new Promise((resolve, reject) => {
       setTimeout(() => {
           const quote = mockDb.quotes.find(q => q.id === id);
@@ -325,6 +361,27 @@ const mockApi = {
             }
         }, 300);
     }),
+    subscribe: (userId: number, plan: 'monthly' | 'quarterly'): Promise<User> => new Promise((resolve, reject) => {
+        setTimeout(() => {
+            const userIndex = mockDb.users.findIndex(u => u.id === userId);
+            if (userIndex !== -1) {
+                const user = mockDb.users[userIndex];
+                const daysToAdd = plan === 'monthly' ? 30 : 90;
+                const now = new Date();
+                const currentExpiry = user.access_expires_at ? new Date(user.access_expires_at) : now;
+                const newExpiry = (currentExpiry > now ? currentExpiry : now);
+
+                user.access_expires_at = addDays(newExpiry, daysToAdd).toISOString();
+                user.is_trial_user = false;
+                user.has_active_access = true;
+                
+                const { password, ...userWithoutPassword } = user;
+                resolve({ ...userWithoutPassword, display_name: `${user.first_name} ${user.last_name}`});
+            } else {
+                reject(new Error("User not found"));
+            }
+        }, 500);
+    }),
 };
 
 const calculateQuoteTotals = (quote: any, userId: number): Quote => {
@@ -353,7 +410,8 @@ const authService = {
   login: (data: LoginData) => mockApi.login(data),
   register: (data: RegisterData) => mockApi.register(data),
   getProfile: () => mockApi.getProfile(getUserId()),
-  updateProfile: (data: Partial<User>) => mockApi.updateProfile(getUserId(), data)
+  updateProfile: (data: Partial<User>) => mockApi.updateProfile(getUserId(), data),
+  subscribe: (plan: 'monthly' | 'quarterly') => mockApi.subscribe(getUserId(), plan),
 };
 
 const projectsService = {
@@ -371,6 +429,7 @@ const projectsService = {
 };
 
 const quotesService = {
+  getPublicQuote: (publicId: string) => mockApi.getPublicQuote(publicId),
   getQuote: (id: number) => mockApi.getQuote(getUserId(), id),
   createItem: (quoteId: number, data: Partial<QuoteItem>) => mockApi.createQuoteItem(getUserId(), quoteId, data),
   deleteItem: (itemId: number) => mockApi.deleteQuoteItem(getUserId(), itemId),
@@ -409,11 +468,11 @@ const Modal: React.FC<{ isOpen: boolean; onClose: () => void; title: string; chi
     </Transition>
 );
 
-const ConfirmationModal: React.FC<{ isOpen: boolean; onClose: () => void; onConfirm: () => void; title: string; message: string; }> = ({ isOpen, onClose, onConfirm, title, message }) => (
+const ConfirmationModal: React.FC<{ isOpen: boolean; onClose: () => void; onConfirm: () => void; title: string; message: string; confirmText?: string; loading?: boolean; }> = ({ isOpen, onClose, onConfirm, title, message, confirmText = "Удалить", loading = false }) => (
     <Modal isOpen={isOpen} onClose={onClose} title={title}>
         <p className="text-sm text-gray-500">{message}</p>
         <div className="mt-5 sm:mt-4 sm:flex sm:flex-row-reverse gap-3">
-            <Button variant="danger" onClick={onConfirm}>Удалить</Button>
+            <Button variant="danger" onClick={onConfirm} loading={loading}>{confirmText}</Button>
             <Button variant="outline" onClick={onClose}>Отмена</Button>
         </div>
     </Modal>
@@ -489,18 +548,22 @@ const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
         setUser(response.user);
     };
 
+    const refreshUser = async () => {
+        const userId = JSON.parse(localStorage.getItem('user_id') || 'null');
+        if (userId) {
+            try {
+                const userData = await authService.getProfile();
+                setUser(userData);
+            } catch (error) {
+                console.error("User refresh failed", error);
+                logout();
+            }
+        }
+    }
+
     useEffect(() => {
         const initializeAuth = async () => {
-            const userId = JSON.parse(localStorage.getItem('user_id') || 'null');
-            if (userId) {
-                try {
-                    const userData = await authService.getProfile();
-                    setUser(userData);
-                } catch (error) {
-                    console.error("Auth init failed", error);
-                    localStorage.removeItem('user_id');
-                }
-            }
+            await refreshUser();
             setLoading(false);
         };
         initializeAuth();
@@ -545,7 +608,7 @@ const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
         }
     };
 
-    const value = { user, loading, login, register, logout, updateProfile, hasActiveAccess: user?.has_active_access || false };
+    const value = { user, loading, login, register, logout, updateProfile, refreshUser, hasActiveAccess: user?.has_active_access || false };
     return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
 
@@ -591,7 +654,7 @@ const ProjectsListPage: React.FC = () => {
     const { hasActiveAccess } = useAuth();
     const [searchTerm, setSearchTerm] = useState('');
     const [statusFilter, setStatusFilter] = useState<string>('');
-    const { data: projects = [], isLoading, error } = useQuery<Project[], Error>({ queryKey: ['projects', { search: searchTerm, status: statusFilter }], queryFn: () => projectsService.getProjects({ search: searchTerm, status: statusFilter }) });
+    const { data: projects = [], isLoading, error } = useQuery<Project[], Error>({queryKey: ['projects', { search: searchTerm, status: statusFilter }], queryFn: () => projectsService.getProjects({ search: searchTerm, status: statusFilter })});
     const formatCurrency = (value: string) => new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', minimumFractionDigits: 0 }).format(parseFloat(value));
     const getStatusBadge = (status: string) => {
         const map: any = { active: 'status-active', completed: 'status-completed', archived: 'status-archived' };
@@ -627,28 +690,25 @@ const CreateProjectPage: React.FC = () => {
     const navigate = useNavigate();
     const queryClient = useTanstackQueryClient();
     
-    const { data: clients = [] } = useQuery<Client[], Error>({ 
-        queryKey: ['clients'], 
-        queryFn: projectsService.getClients 
-    });
+    const { data: clients = [] } = useQuery<Client[], Error>({queryKey: ['clients'], queryFn: projectsService.getClients});
 
     const { register, handleSubmit, watch, formState: { errors } } = useForm<CreateProjectFormData>();
     
-    const createProjectMutation = useMutation<Project, Error, Partial<Project>>({ 
-        mutationFn: projectsService.createProject, 
-        onSuccess: (data) => { 
-            toast.success('Проект создан!'); 
-            queryClient.invalidateQueries({ queryKey: ['projects'] }); 
-            navigate(`/projects/${data.id}`); 
-        }, 
-        onError: () => toast.error('Ошибка создания проекта') 
+    const createProjectMutation = useMutation<Project, Error, Partial<Project>>({
+        mutationFn: projectsService.createProject,
+        onSuccess: (data) => {
+            toast.success('Проект создан!');
+            queryClient.invalidateQueries({ queryKey: ['projects'] });
+            navigate(`/projects/${data.id}`);
+        },
+        onError: () => toast.error('Ошибка создания проекта')
     });
 
-    const createClientMutation = useMutation<Client, Error, Partial<Client>>({ 
-        mutationFn: projectsService.createClient, 
+    const createClientMutation = useMutation<Client, Error, Partial<Client>>({
+        mutationFn: projectsService.createClient,
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['clients'] });
-        } 
+        }
     });
     
     const clientId = watch('client_id');
@@ -742,7 +802,7 @@ const AddPaymentForm: React.FC<{ projectId: number; onClose: () => void }> = ({ 
 const AddQuoteForm: React.FC<{ projectId: number; onClose: () => void }> = ({ projectId, onClose }) => {
     const queryClient = useTanstackQueryClient();
     const { register, handleSubmit, formState: { errors } } = useForm<{ title: string }>();
-    const createQuoteMutation = useMutation<Quote, Error, { title: string }>({
+    const createQuoteMutation = useMutation<Quote, Error, { title: string }>>({
         mutationFn: (data) => projectsService.createQuote(projectId, data),
         onSuccess: () => {
             toast.success("Смета создана");
@@ -774,8 +834,13 @@ const AddQuoteForm: React.FC<{ projectId: number; onClose: () => void }> = ({ pr
 const ProjectDetailPage: React.FC = () => {
     const { id } = useParams<{ id: string }>();
     const projectId = Number(id);
+    const { hasActiveAccess } = useAuth();
     const queryClient = useTanstackQueryClient();
-    const { data: project, isLoading, error } = useQuery<ProjectDetail, Error>({ queryKey: ['project', projectId], queryFn: () => projectsService.getProject(projectId), enabled: !!id });
+    const { data: project, isLoading, error } = useQuery<ProjectDetail, Error>({
+        queryKey: ['project', projectId],
+        queryFn: () => projectsService.getProject(projectId),
+        enabled: !!id
+    });
     const formatCurrency = (value: string | number) => new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', minimumFractionDigits: 0 }).format(Number(value));
 
     const [modal, setModal] = useState<'addExpense' | 'addPayment' | 'deleteExpense' | 'deletePayment' | 'addQuote' | 'deleteQuote' | null>(null);
@@ -814,11 +879,11 @@ const ProjectDetailPage: React.FC = () => {
     if (error || !project) return <div className="text-center text-red-600">Не удалось загрузить проект.</div>;
     
     return (
-        <div className="space-y-6"><div><Link to="/projects" className="flex items-center text-sm text-gray-500 hover:text-gray-700 mb-4"><ArrowLeft size={16} className="mr-2" />Назад к проектам</Link><div className="flex flex-col sm:flex-row sm:items-center sm:justify-between"><div><h1 className="text-2xl font-bold text-gray-900">{project.title}</h1><p className="mt-1 text-sm text-gray-500">{project.address}</p></div><div className="mt-4 sm:mt-0"><Button variant="outline"><Edit size={16} className="mr-2" />Редактировать</Button></div></div></div><div className="grid grid-cols-2 md:grid-cols-4 gap-4"><div className="card text-center"><p className="text-sm text-gray-500">Сумма смет</p><p className="text-xl font-bold currency">{formatCurrency(project.total_quote_amount)}</p></div><div className="card text-center"><p className="text-sm text-gray-500">Расходы</p><p className="text-xl font-bold currency">{formatCurrency(project.total_expenses)}</p></div><div className="card text-center"><p className="text-sm text-gray-500">Оплачено</p><p className="text-xl font-bold currency">{formatCurrency(project.total_payments_received)}</p></div><div className="card text-center"><p className="text-sm text-gray-500">Прибыль</p><p className={clsx('text-xl font-bold currency', Number(project.expected_profit) >= 0 ? 'currency-positive' : 'currency-negative')}>{formatCurrency(project.expected_profit)}</p></div></div><div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6"><div className="card space-y-4"><div className="flex justify-between items-center"><h2 className="text-lg font-semibold flex items-center"><FileText size={20} className="mr-2" />Сметы</h2><Button size="sm" onClick={() => setModal('addQuote')}><Plus size={14} className="mr-1" />Создать смету</Button></div>{project.quotes.length > 0 ? <ul className="divide-y">{project.quotes.map(quote => <li key={quote.id} className="py-2 flex justify-between items-center group"><Link to={`/quotes/${quote.id}`} className="text-blue-600 hover:underline flex-1 truncate pr-4">{quote.title}</Link><div className="flex items-center"><span className="font-medium currency mr-4">{formatCurrency(quote.total_amount)}</span><button onClick={() => { setItemToDelete(quote); setModal('deleteQuote'); }} className="text-gray-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 size={16}/></button></div></li>)}</ul> : <p className="text-sm text-gray-500 text-center py-4">Смет пока нет</p>}</div><div className="card space-y-4"><div className="flex justify-between items-center"><h2 className="text-lg font-semibold flex items-center"><Receipt size={20} className="mr-2" />Расходы</h2><Button size="sm" onClick={() => setModal('addExpense')}><Plus size={14} className="mr-1" />Добавить</Button></div>{project.expenses.length > 0 ? <ul className="divide-y">{project.expenses.map(expense => <li key={expense.id} className="py-2 flex justify-between items-center group"><div><p>{expense.description || "Расход"}</p><p className="text-xs text-gray-400">{format(new Date(expense.expense_date), 'dd.MM.yyyy')}</p></div><div className="flex items-center"><span className="font-medium currency mr-4">{formatCurrency(expense.amount)}</span><button onClick={() => { setItemToDelete(expense); setModal('deleteExpense'); }} className="text-gray-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 size={16}/></button></div></li>)}</ul> : <p className="text-sm text-gray-500 text-center py-4">Расходов пока нет</p>}</div><div className="card space-y-4"><div className="flex justify-between items-center"><h2 className="text-lg font-semibold flex items-center"><Banknote size={20} className="mr-2" />Платежи</h2><Button size="sm" onClick={() => setModal('addPayment')}><Plus size={14} className="mr-1" />Добавить</Button></div>{project.payments_received.length > 0 ? <ul className="divide-y">{project.payments_received.map(payment => <li key={payment.id} className="py-2 flex justify-between items-center group"><div><p>{payment.description || "Платеж"}</p><p className="text-xs text-gray-400">{format(new Date(payment.payment_date), 'dd.MM.yyyy')}</p></div><div className="flex items-center"><span className="font-medium currency mr-4">{formatCurrency(payment.amount)}</span><button onClick={() => { setItemToDelete(payment); setModal('deletePayment'); }} className="text-gray-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 size={16}/></button></div></li>)}</ul> : <p className="text-sm text-gray-500 text-center py-4">Платежей пока нет</p>}</div></div>
+        <div className="space-y-6"><div><Link to="/projects" className="flex items-center text-sm text-gray-500 hover:text-gray-700 mb-4"><ArrowLeft size={16} className="mr-2" />Назад к проектам</Link><div className="flex flex-col sm:flex-row sm:items-center sm:justify-between"><div><h1 className="text-2xl font-bold text-gray-900">{project.title}</h1><p className="mt-1 text-sm text-gray-500">{project.address}</p></div><div className="mt-4 sm:mt-0"><Button variant="outline" disabled={!hasActiveAccess}><Edit size={16} className="mr-2" />Редактировать</Button></div></div></div><div className="grid grid-cols-2 md:grid-cols-4 gap-4"><div className="card text-center"><p className="text-sm text-gray-500">Сумма смет</p><p className="text-xl font-bold currency">{formatCurrency(project.total_quote_amount)}</p></div><div className="card text-center"><p className="text-sm text-gray-500">Расходы</p><p className="text-xl font-bold currency">{formatCurrency(project.total_expenses)}</p></div><div className="card text-center"><p className="text-sm text-gray-500">Оплачено</p><p className="text-xl font-bold currency">{formatCurrency(project.total_payments_received)}</p></div><div className="card text-center"><p className="text-sm text-gray-500">Прибыль</p><p className={clsx('text-xl font-bold currency', Number(project.expected_profit) >= 0 ? 'currency-positive' : 'currency-negative')}>{formatCurrency(project.expected_profit)}</p></div></div><div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6"><div className="card space-y-4"><div className="flex justify-between items-center"><h2 className="text-lg font-semibold flex items-center"><FileText size={20} className="mr-2" />Сметы</h2><Button size="sm" onClick={() => setModal('addQuote')} disabled={!hasActiveAccess}><Plus size={14} className="mr-1" />Создать смету</Button></div>{project.quotes.length > 0 ? <ul className="divide-y">{project.quotes.map(quote => <li key={quote.id} className="py-2 flex justify-between items-center group"><Link to={`/quotes/${quote.id}`} className="text-blue-600 hover:underline flex-1 truncate pr-4">{quote.title}</Link><div className="flex items-center"><span className="font-medium currency mr-4">{formatCurrency(quote.total_amount)}</span><button onClick={() => { setItemToDelete(quote); setModal('deleteQuote'); }} disabled={!hasActiveAccess} className="text-gray-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity disabled:opacity-0"><Trash2 size={16}/></button></div></li>)}</ul> : <p className="text-sm text-gray-500 text-center py-4">Смет пока нет</p>}</div><div className="card space-y-4"><div className="flex justify-between items-center"><h2 className="text-lg font-semibold flex items-center"><Receipt size={20} className="mr-2" />Расходы</h2><Button size="sm" onClick={() => setModal('addExpense')} disabled={!hasActiveAccess}><Plus size={14} className="mr-1" />Добавить</Button></div>{project.expenses.length > 0 ? <ul className="divide-y">{project.expenses.map(expense => <li key={expense.id} className="py-2 flex justify-between items-center group"><div><p>{expense.description || "Расход"}</p><p className="text-xs text-gray-400">{format(new Date(expense.expense_date), 'dd.MM.yyyy')}</p></div><div className="flex items-center"><span className="font-medium currency mr-4">{formatCurrency(expense.amount)}</span><button onClick={() => { setItemToDelete(expense); setModal('deleteExpense'); }} disabled={!hasActiveAccess} className="text-gray-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity disabled:opacity-0"><Trash2 size={16}/></button></div></li>)}</ul> : <p className="text-sm text-gray-500 text-center py-4">Расходов пока нет</p>}</div><div className="card space-y-4"><div className="flex justify-between items-center"><h2 className="text-lg font-semibold flex items-center"><Banknote size={20} className="mr-2" />Платежи</h2><Button size="sm" onClick={() => setModal('addPayment')} disabled={!hasActiveAccess}><Plus size={14} className="mr-1" />Добавить</Button></div>{project.payments_received.length > 0 ? <ul className="divide-y">{project.payments_received.map(payment => <li key={payment.id} className="py-2 flex justify-between items-center group"><div><p>{payment.description || "Платеж"}</p><p className="text-xs text-gray-400">{format(new Date(payment.payment_date), 'dd.MM.yyyy')}</p></div><div className="flex items-center"><span className="font-medium currency mr-4">{formatCurrency(payment.amount)}</span><button onClick={() => { setItemToDelete(payment); setModal('deletePayment'); }} disabled={!hasActiveAccess} className="text-gray-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity disabled:opacity-0"><Trash2 size={16}/></button></div></li>)}</ul> : <p className="text-sm text-gray-500 text-center py-4">Платежей пока нет</p>}</div></div>
             <Modal isOpen={modal === 'addExpense'} onClose={() => setModal(null)} title="Добавить расход"><AddExpenseForm projectId={projectId} onClose={() => setModal(null)}/></Modal>
             <Modal isOpen={modal === 'addPayment'} onClose={() => setModal(null)} title="Добавить платеж"><AddPaymentForm projectId={projectId} onClose={() => setModal(null)}/></Modal>
             <Modal isOpen={modal === 'addQuote'} onClose={() => setModal(null)} title="Создать новую смету"><AddQuoteForm projectId={projectId} onClose={() => setModal(null)}/></Modal>
-            <ConfirmationModal isOpen={modal === 'deleteExpense' || modal === 'deletePayment' || modal === 'deleteQuote'} onClose={() => setModal(null)} onConfirm={handleDelete} title="Подтвердите удаление" message="Вы уверены, что хотите удалить эту запись? Это действие необратимо."/>
+            <ConfirmationModal isOpen={['deleteExpense', 'deletePayment', 'deleteQuote'].includes(modal || '')} onClose={() => setModal(null)} onConfirm={handleDelete} title="Подтвердите удаление" message="Вы уверены, что хотите удалить эту запись? Это действие необратимо." loading={deleteExpenseMutation.isPending || deletePaymentMutation.isPending || deleteQuoteMutation.isPending} />
         </div>
     );
 };
@@ -880,9 +945,14 @@ const AddQuoteItemForm: React.FC<{ quoteId: number; onClose: () => void }> = ({ 
 
 const QuoteDetailPage: React.FC = () => {
     const { id } = useParams<{ id: string }>();
+    const { hasActiveAccess } = useAuth();
     const quoteId = Number(id);
     const queryClient = useTanstackQueryClient();
-    const { data: quote, isLoading, error } = useQuery<Quote, Error>({ queryKey: ['quote', quoteId], queryFn: () => quotesService.getQuote(quoteId), enabled: !!id });
+    const { data: quote, isLoading, error } = useQuery<Quote, Error>({
+        queryKey: ['quote', quoteId],
+        queryFn: () => quotesService.getQuote(quoteId),
+        enabled: !!id
+    });
     const formatCurrency = (value: string | number) => new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB' }).format(Number(value));
 
     const [modal, setModal] = useState<'addItem' | 'deleteItem' | null>(null);
@@ -893,7 +963,7 @@ const QuoteDetailPage: React.FC = () => {
         onSuccess: () => {
             toast.success("Позиция удалена");
             queryClient.invalidateQueries({ queryKey: ['quote', quoteId] });
-            queryClient.invalidateQueries({ queryKey: ['project'] }); // Invalidate project to update totals
+            queryClient.invalidateQueries({ queryKey: ['project', quote?.project_id] });
         },
         onError: () => toast.error("Ошибка удаления"),
         onSettled: () => { setModal(null); setItemToDelete(null); }
@@ -906,27 +976,78 @@ const QuoteDetailPage: React.FC = () => {
     const materialItems = quote.items.filter(item => item.type === 'material');
 
     return (
-        <div className="space-y-6"><div><Link to={`/projects/${quote.project_id}`} className="flex items-center text-sm text-gray-500 hover:text-gray-700 mb-4"><ArrowLeft size={16} className="mr-2" />Назад к проекту</Link><div className="flex flex-col sm:flex-row sm:items-center sm:justify-between"><div><h1 className="text-2xl font-bold text-gray-900">{quote.title}</h1><p className="mt-1 text-sm text-gray-500">Проект: {quote.project_title}</p></div><div className="mt-4 sm:mt-0 flex space-x-2"><Button variant="outline">Поделиться</Button><Button onClick={() => setModal('addItem')}><Plus size={16} className="mr-2" />Добавить позицию</Button></div></div></div><div className="card"><div className="space-y-8"><div><h3 className="text-lg font-semibold mb-2">Работы</h3>{workItems.length > 0 ? <div className="overflow-x-auto"><table className="w-full"><thead><tr className="text-sm text-gray-500 text-left"><th>Наименование</th><th className="text-center">Кол-во</th><th>Ед.</th><th className="text-right">Цена</th><th className="text-right">Сумма</th><th></th></tr></thead><tbody className="divide-y">{workItems.map(item => <tr key={item.id} className="group"><td>{item.name}</td><td className="text-center">{item.quantity}</td><td>{item.unit}</td><td className="text-right currency">{formatCurrency(item.unit_price)}</td><td className="text-right font-semibold currency">{formatCurrency(item.total_price)}</td><td className="text-right w-10"><button onClick={() => { setItemToDelete(item); setModal('deleteItem'); }} className="text-gray-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 size={16}/></button></td></tr>)}</tbody></table></div> : <p className="text-sm text-gray-500">Нет работ</p>}</div><div><h3 className="text-lg font-semibold mb-2">Материалы</h3>{materialItems.length > 0 ? <div className="overflow-x-auto"><table className="w-full"><thead><tr className="text-sm text-gray-500 text-left"><th>Наименование</th><th className="text-center">Кол-во</th><th>Ед.</th><th className="text-right">Цена</th><th className="text-right">Сумма</th><th></th></tr></thead><tbody className="divide-y">{materialItems.map(item => <tr key={item.id} className="group"><td>{item.name}</td><td className="text-center">{item.quantity}</td><td>{item.unit}</td><td className="text-right currency">{formatCurrency(item.unit_price)}</td><td className="text-right font-semibold currency">{formatCurrency(item.total_price)}</td><td className="text-right w-10"><button onClick={() => { setItemToDelete(item); setModal('deleteItem'); }} className="text-gray-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 size={16}/></button></td></tr>)}</tbody></table></div> : <p className="text-sm text-gray-500">Нет материалов</p>}</div><div className="mt-8 flex justify-end"><div className="w-full max-w-sm space-y-3 pt-4 border-t"><div className="flex justify-between"><span className="text-gray-600">Итого по работам:</span><span className="font-medium">{formatCurrency(quote.work_amount)}</span></div><div className="flex justify-between"><span className="text-gray-600">Итого по материалам:</span><span className="font-medium">{formatCurrency(quote.material_amount)}</span></div><div className="flex justify-between text-xl font-bold border-t pt-3"><span>Всего:</span><span>{formatCurrency(quote.total_amount)}</span></div></div></div></div></div>
+        <div className="space-y-6"><div><Link to={`/projects/${quote.project_id}`} className="flex items-center text-sm text-gray-500 hover:text-gray-700 mb-4"><ArrowLeft size={16} className="mr-2" />Назад к проекту</Link><div className="flex flex-col sm:flex-row sm:items-center sm:justify-between"><div><h1 className="text-2xl font-bold text-gray-900">{quote.title}</h1><p className="mt-1 text-sm text-gray-500">Проект: {quote.project_title}</p></div><div className="mt-4 sm:mt-0 flex space-x-2"><Link to={`/quotes/public/${quote.public_id}`} target="_blank"><Button variant="outline"><Share2 size={16} className="mr-2" />Поделиться</Button></Link><Button onClick={() => setModal('addItem')} disabled={!hasActiveAccess}><Plus size={16} className="mr-2" />Добавить позицию</Button></div></div></div><div className="card"><div className="space-y-8"><div><h3 className="text-lg font-semibold mb-2">Работы</h3>{workItems.length > 0 ? <div className="overflow-x-auto"><table className="w-full"><thead><tr className="text-sm text-gray-500 text-left"><th>Наименование</th><th className="text-center">Кол-во</th><th>Ед.</th><th className="text-right">Цена</th><th className="text-right">Сумма</th><th></th></tr></thead><tbody className="divide-y">{workItems.map(item => <tr key={item.id} className="group"><td>{item.name}</td><td className="text-center">{item.quantity}</td><td>{item.unit}</td><td className="text-right currency">{formatCurrency(item.unit_price)}</td><td className="text-right font-semibold currency">{formatCurrency(item.total_price)}</td><td className="text-right w-10"><button onClick={() => { setItemToDelete(item); setModal('deleteItem'); }} disabled={!hasActiveAccess} className="text-gray-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity disabled:opacity-0"><Trash2 size={16}/></button></td></tr>)}</tbody></table></div> : <p className="text-sm text-gray-500">Нет работ</p>}</div><div><h3 className="text-lg font-semibold mb-2">Материалы</h3>{materialItems.length > 0 ? <div className="overflow-x-auto"><table className="w-full"><thead><tr className="text-sm text-gray-500 text-left"><th>Наименование</th><th className="text-center">Кол-во</th><th>Ед.</th><th className="text-right">Цена</th><th className="text-right">Сумма</th><th></th></tr></thead><tbody className="divide-y">{materialItems.map(item => <tr key={item.id} className="group"><td>{item.name}</td><td className="text-center">{item.quantity}</td><td>{item.unit}</td><td className="text-right currency">{formatCurrency(item.unit_price)}</td><td className="text-right font-semibold currency">{formatCurrency(item.total_price)}</td><td className="text-right w-10"><button onClick={() => { setItemToDelete(item); setModal('deleteItem'); }} disabled={!hasActiveAccess} className="text-gray-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity disabled:opacity-0"><Trash2 size={16}/></button></td></tr>)}</tbody></table></div> : <p className="text-sm text-gray-500">Нет материалов</p>}</div><div className="mt-8 flex justify-end"><div className="w-full max-w-sm space-y-3 pt-4 border-t"><div className="flex justify-between"><span className="text-gray-600">Итого по работам:</span><span className="font-medium">{formatCurrency(quote.work_amount)}</span></div><div className="flex justify-between"><span className="text-gray-600">Итого по материалам:</span><span className="font-medium">{formatCurrency(quote.material_amount)}</span></div><div className="flex justify-between text-xl font-bold border-t pt-3"><span>Всего:</span><span>{formatCurrency(quote.total_amount)}</span></div></div></div></div></div>
         <Modal isOpen={modal === 'addItem'} onClose={() => setModal(null)} title="Добавить позицию"><AddQuoteItemForm quoteId={quoteId} onClose={() => setModal(null)} /></Modal>
-        <ConfirmationModal isOpen={modal === 'deleteItem'} onClose={() => setModal(null)} onConfirm={() => itemToDelete && deleteItemMutation.mutate(itemToDelete.id)} title="Подтвердите удаление" message={`Вы уверены, что хотите удалить позицию "${itemToDelete?.name}"?`} />
+        <ConfirmationModal isOpen={modal === 'deleteItem'} onClose={() => setModal(null)} onConfirm={() => itemToDelete && deleteItemMutation.mutate(itemToDelete.id)} title="Подтвердите удаление" message={`Вы уверены, что хотите удалить позицию "${itemToDelete?.name}"?`} loading={deleteItemMutation.isPending} />
         </div>
+    );
+};
+
+const PublicQuotePage: React.FC = () => {
+    const { publicId } = useParams<{ publicId: string }>();
+    const { data: quote, isLoading, error } = useQuery<Quote, Error>({
+        queryKey: ['publicQuote', publicId],
+        queryFn: () => quotesService.getPublicQuote(publicId!),
+        enabled: !!publicId
+    });
+    const formatCurrency = (value: string | number) => new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB' }).format(Number(value));
+
+    if (isLoading) return <div className="min-h-screen flex items-center justify-center"><div className="spinner h-8 w-8"></div></div>;
+    if (error || !quote) return <div className="min-h-screen flex items-center justify-center text-red-600">Не удалось загрузить смету.</div>;
+
+    const workItems = quote.items.filter(item => item.type === 'work');
+    const materialItems = quote.items.filter(item => item.type === 'material');
+
+    return (
+      <div className="min-h-screen bg-gray-100 p-4 sm:p-8">
+        <div className="max-w-4xl mx-auto bg-white shadow-lg rounded-lg">
+          <header className="bg-gray-800 text-white p-8 rounded-t-lg">
+              <div className="flex justify-between items-start">
+                  <div>
+                      <h1 className="text-3xl font-bold">{quote.contractor?.company_name}</h1>
+                      <p className="text-gray-300">{quote.contractor?.display_name}</p>
+                      <p className="text-gray-300">{quote.contractor?.phone} | {quote.contractor?.email}</p>
+                  </div>
+                  <div className="text-right">
+                      <h2 className="text-2xl font-semibold">Смета</h2>
+                      <p className="text-gray-300">Дата: {format(new Date(quote.created_at), 'dd.MM.yyyy')}</p>
+                  </div>
+              </div>
+          </header>
+          
+          <main className="p-8">
+              <div className="grid grid-cols-2 gap-8 mb-8">
+                  <div><h3 className="font-semibold text-gray-500 uppercase tracking-wide text-sm">Проект</h3><p className="text-lg font-medium text-gray-900">{quote.project_title}</p></div>
+                  <div><h3 className="font-semibold text-gray-500 uppercase tracking-wide text-sm">Клиент</h3><p className="text-lg font-medium text-gray-900">{quote.client_name}</p></div>
+              </div>
+              <div className="space-y-6"><div><h4 className="text-xl font-semibold mb-2 border-b pb-2">Работы</h4><table className="w-full text-left"><thead><tr className="text-sm text-gray-500"><th className="py-2">Наименование</th><th className="py-2 text-center">Кол-во</th><th className="py-2 text-center">Ед.</th><th className="py-2 text-right">Цена</th><th className="py-2 text-right">Сумма</th></tr></thead><tbody className="divide-y">{workItems.map(item => (<tr key={item.id}><td className="py-2">{item.name}</td><td className="py-2 text-center">{item.quantity}</td><td className="py-2 text-center">{item.unit}</td><td className="py-2 text-right">{formatCurrency(item.unit_price)}</td><td className="py-2 text-right font-medium">{formatCurrency(item.total_price)}</td></tr>))}</tbody></table></div><div><h4 className="text-xl font-semibold mb-2 border-b pb-2">Материалы</h4><table className="w-full text-left"><thead><tr className="text-sm text-gray-500"><th className="py-2">Наименование</th><th className="py-2 text-center">Кол-во</th><th className="py-2 text-center">Ед.</th><th className="py-2 text-right">Цена</th><th className="py-2 text-right">Сумма</th></tr></thead><tbody className="divide-y">{materialItems.map(item => (<tr key={item.id}><td className="py-2">{item.name}</td><td className="py-2 text-center">{item.quantity}</td><td className="py-2 text-center">{item.unit}</td><td className="py-2 text-right">{formatCurrency(item.unit_price)}</td><td className="py-2 text-right font-medium">{formatCurrency(item.total_price)}</td></tr>))}</tbody></table></div></div>
+              <div className="mt-8 flex justify-end"><div className="w-full max-w-sm space-y-3"><div className="flex justify-between"><span className="text-gray-600">Итого по работам:</span><span className="font-medium">{formatCurrency(quote.work_amount)}</span></div><div className="flex justify-between"><span className="text-gray-600">Итого по материалам:</span><span className="font-medium">{formatCurrency(quote.material_amount)}</span></div><div className="flex justify-between text-xl font-bold border-t pt-3"><span>Всего:</span><span>{formatCurrency(quote.total_amount)}</span></div></div></div>
+          </main>
+        </div>
+         <div className="text-center mt-6">
+              <Button onClick={() => window.print()}><Printer size={16} className="mr-2"/>Печать / Сохранить в PDF</Button>
+          </div>
+      </div>
     );
 };
 
 const ProfilePage: React.FC = () => {
     const { user, updateProfile } = useAuth();
-    const [isLoading, setIsLoading] = useState(false);
     const { register, handleSubmit, formState: { errors, isDirty } } = useForm<Partial<User>>({
         defaultValues: { first_name: user?.first_name, last_name: user?.last_name, company_name: user?.company_name, phone: user?.phone }
     });
-    const onSubmit = async (data: Partial<User>) => {
-        setIsLoading(true);
-        try {
-            await updateProfile(data);
+    
+    const mutation = useMutation<User, Error, Partial<User>>({
+        mutationFn: authService.updateProfile,
+        onSuccess: (updatedUser) => {
             toast.success('Профиль обновлен');
-        } catch (error) { } 
-        finally { setIsLoading(false); }
-    };
+            updateProfile(updatedUser); // Update context
+        },
+        onError: () => toast.error('Ошибка обновления профиля')
+    });
+
+    const onSubmit = (data: Partial<User>) => mutation.mutate(data);
+
     if (!user) return null;
     return (
         <div className="space-y-6"><h1 className="text-2xl font-bold">Профиль</h1>
@@ -938,15 +1059,47 @@ const ProfilePage: React.FC = () => {
                 </div>
                 <div><label htmlFor="company_name" className="form-label">Название компании</label><input id="company_name" type="text" className="form-input" {...register('company_name')} /></div>
                 <div><label htmlFor="phone" className="form-label">Телефон</label><input id="phone" type="tel" className="form-input" {...register('phone')} /></div>
-                <div className="flex justify-end"><Button type="submit" loading={isLoading} disabled={!isDirty}>Сохранить</Button></div>
+                <div className="flex justify-end"><Button type="submit" loading={mutation.isPending} disabled={!isDirty}>Сохранить</Button></div>
             </form></div>
         </div>
     );
 };
 
-const SubscriptionPage: React.FC = () => (
-    <div className="space-y-6"><h1 className="text-2xl font-bold">Подписка</h1><div className="card text-center"><p>Страница управления подпиской находится в разработке.</p></div></div>
-);
+const SubscriptionPage: React.FC = () => {
+    const { user, refreshUser } = useAuth();
+    const [modal, setModal] = useState<'confirm' | null>(null);
+    const [selectedPlan, setSelectedPlan] = useState<'monthly' | 'quarterly' | null>(null);
+
+    const subscribeMutation = useMutation<User, Error, 'monthly' | 'quarterly'>({
+        mutationFn: authService.subscribe,
+        onSuccess: async () => {
+            toast.success("Подписка успешно оформлена!");
+            await refreshUser();
+            setModal(null);
+        },
+        onError: () => toast.error("Не удалось оформить подписку.")
+    });
+
+    const handleSelectPlan = (plan: 'monthly' | 'quarterly') => {
+        setSelectedPlan(plan);
+        setModal('confirm');
+    };
+
+    const handleConfirm = () => {
+        if (selectedPlan) {
+            subscribeMutation.mutate(selectedPlan);
+        }
+    };
+
+    return (
+      <div className="space-y-6">
+        <div><h1 className="text-2xl font-bold">Подписка</h1><p className="mt-1 text-sm text-gray-500">Управляйте своим тарифным планом</p></div>
+        <div className="card max-w-2xl"><h2 className="text-lg font-semibold mb-4">Текущий статус</h2>{user?.has_active_access ? (<div className="bg-green-50 border border-green-200 p-4 rounded-lg"><p className="font-medium text-green-800">Ваша подписка активна</p>{user.access_expires_at && <p className="text-sm text-green-700">Доступ действителен до: {format(new Date(user.access_expires_at), 'dd.MM.yyyy')}</p>}</div>) : (<div className="bg-red-50 border border-red-200 p-4 rounded-lg"><p className="font-medium text-red-800">Подписка неактивна</p><p className="text-sm text-red-700">Оформите подписку, чтобы получить полный доступ ко всем функциям.</p></div>)}</div>
+        <div className="max-w-4xl"><h2 className="text-lg font-semibold mb-4">Тарифные планы</h2><div className="grid grid-cols-1 md:grid-cols-2 gap-6"><div className="card flex flex-col justify-between"><div><h3 className="text-xl font-bold">Месячный</h3><p className="text-3xl font-extrabold my-4">1 500 ₽ <span className="text-base font-normal text-gray-500">/ месяц</span></p><ul className="space-y-2 text-sm text-gray-600"><li className="flex items-center"><CheckCircle size={16} className="text-green-500 mr-2"/> Неограниченно проектов</li><li className="flex items-center"><CheckCircle size={16} className="text-green-500 mr-2"/> Неограниченно смет</li><li className="flex items-center"><CheckCircle size={16} className="text-green-500 mr-2"/> Учет финансов</li><li className="flex items-center"><CheckCircle size={16} className="text-green-500 mr-2"/> Поддержка по email</li></ul></div><Button className="w-full mt-6" onClick={() => handleSelectPlan('monthly')}>Выбрать тариф</Button></div><div className="card flex flex-col justify-between border-2 border-blue-600 relative"><div className="absolute top-0 -translate-y-1/2 left-1/2 -translate-x-1/2"><span className="px-3 py-1 bg-blue-600 text-white text-sm font-semibold rounded-full">Выгодно</span></div><div><h3 className="text-xl font-bold">Квартальный</h3><p className="text-3xl font-extrabold my-4">4 000 ₽ <span className="text-base font-normal text-gray-500">/ 3 месяца</span></p><p className="text-sm text-green-600 font-medium mb-4">Экономия 500 ₽!</p><ul className="space-y-2 text-sm text-gray-600"><li className="flex items-center"><CheckCircle size={16} className="text-green-500 mr-2"/> Все функции месячного тарифа</li><li className="flex items-center"><CheckCircle size={16} className="text-green-500 mr-2"/> Приоритетная поддержка</li></ul></div><Button className="w-full mt-6" onClick={() => handleSelectPlan('quarterly')}>Выбрать тариф</Button></div></div></div>
+        <ConfirmationModal isOpen={modal === 'confirm'} onClose={() => setModal(null)} onConfirm={handleConfirm} title="Подтверждение оплаты" message={`Вы уверены, что хотите оформить ${selectedPlan === 'monthly' ? 'месячную' : 'квартальную'} подписку?`} confirmText="Оплатить" loading={subscribeMutation.isPending}/>
+      </div>
+    );
+};
 
 // --- APP SETUP ---
 const queryClient = new QueryClient();
@@ -970,6 +1123,7 @@ const App = () => (
                 <Routes>
                     <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
                     <Route path="/register" element={<PublicRoute><RegisterPage /></PublicRoute>} />
+                    <Route path="/quotes/public/:publicId" element={<PublicQuotePage />} />
                     <Route path="/projects" element={<ProtectedRoute><ProjectsListPage /></ProtectedRoute>} />
                     <Route path="/projects/new" element={<ProtectedRoute><CreateProjectPage /></ProtectedRoute>} />
                     <Route path="/projects/:id" element={<ProtectedRoute><ProjectDetailPage /></ProtectedRoute>} />
