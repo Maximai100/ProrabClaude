@@ -231,7 +231,7 @@ const CreateProjectPage: React.FC = () => {
             </Button>
             <Button
               type="submit"
-              loading={createProjectMutation.isLoading || createClientMutation.isLoading}
+              loading={createProjectMutation.isPending || createClientMutation.isPending}
             >
               Создать проект
             </Button>
