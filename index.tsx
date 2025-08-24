@@ -9,12 +9,11 @@ import { QueryClient, QueryClientProvider, useQuery, useMutation, useQueryClient
 import toast, { Toaster } from 'react-hot-toast';
 import { useForm } from 'react-hook-form';
 import clsx from 'clsx';
-import { format as formatDate } from 'date-fns';
-import { Eye, EyeOff, Plus, Search, Filter, FolderOpen, ArrowLeft, Edit, FileText, DollarSign, Receipt, Menu, X, User, LogOut, Settings, CreditCard, CheckCircle, Trash2 } from 'lucide-react';
+import { Eye, EyeOff, Plus, Search, Filter, FolderOpen, ArrowLeft, Edit, FileText, Receipt, Menu, X, User, LogOut, Settings, CreditCard, Trash2 } from 'lucide-react';
 import { Transition } from '@headlessui/react';
 
 // --- TYPES ---
-// --- auth.ts ---
+
 interface User {
   id: number;
   email: string;
@@ -32,16 +31,13 @@ interface RegisterData { email: string; password: string; password_confirm: stri
 interface AuthTokens { access: string; refresh: string; }
 interface AuthResponse { user: User; tokens: AuthTokens; }
 
-// --- project.ts ---
 interface Client { id: number; name: string; phone: string; email: string; created_at: string; }
 interface Project { id: number; title: string; address: string; status: 'active' | 'completed' | 'archived'; notes: string; client?: Client; client_id?: number; total_quote_amount: string; total_expenses: string; total_payments_received: string; expected_profit: string; balance_due: string; created_at: string; updated_at: string; }
 interface Expense { id: number; amount: string; description: string; receipt_photo?: string; expense_date: string; created_at: string; }
 interface ProjectPayment { id: number; amount: string; description: string; payment_date: string; created_at: string; }
-interface ProjectDetail extends Project { quotes: Quote[]; expenses: Expense[]; payments_received: ProjectPayment[]; }
-
-// --- quote.ts ---
 interface QuoteItem { id: number; name: string; type: 'work' | 'material'; unit: string; quantity: string; unit_price: string; total_price: string; order: number; created_at: string; }
 interface Quote { id: number; project_id: number; title: string; public_id: string; notes: string; total_amount: string; work_amount: string; material_amount: string; items: QuoteItem[]; project_title: string; client_name?: string; created_at: string; updated_at: string; }
+interface ProjectDetail extends Project { quotes: Quote[]; expenses: Expense[]; payments_received: ProjectPayment[]; }
 
 // --- MOCK API & DATABASE ---
 const mockDb = {
@@ -60,6 +56,8 @@ const mockDb = {
     ],
     quotes: [
         { id: 1, project_id: 1, title: "Смета по квартире", public_id: 'abc123def', notes: '', created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+        { id: 2, project_id: 2, title: "Электрика в офисе", public_id: 'ghj456klm', notes: '', created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+        { id: 3, project_id: 3, title: "Отделочные работы", public_id: 'xyz789qwe', notes: '', created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
     ],
     quoteItems: [
         { id: 1, quote_id: 1, name: 'Штукатурка стен', type: 'work', unit: 'м²', quantity: '25.00', unit_price: '600.00', order: 1, created_at: new Date().toISOString() },
@@ -75,7 +73,6 @@ const mockDb = {
 };
 
 const mockApi = {
-  // --- Auth ---
   login: (data: LoginData): Promise<AuthResponse> => new Promise((resolve, reject) => {
     setTimeout(() => {
         const user = mockDb.users.find(u => u.email === data.email && u.password === data.password);
@@ -136,8 +133,6 @@ const mockApi = {
           }
       }, 500);
   }),
-
-  // --- Projects ---
   getProjects: (userId: number, params: { status?: string, search?: string }): Promise<Project[]> => new Promise(resolve => {
     setTimeout(() => {
         let projects = mockDb.projects.filter(p => p.userId === userId);
@@ -189,19 +184,18 @@ const mockApi = {
   }),
   createClient: (userId: number, data: Partial<Client>): Promise<Client> => new Promise(resolve => {
       setTimeout(() => {
-          const newClient: any = {
+          const newClient: Client = {
               id: mockDb.clients.length + 1,
               userId,
-              name: data.name,
-              phone: data.phone,
-              email: data.email,
+              name: data.name!,
+              phone: data.phone || '',
+              email: data.email || '',
               created_at: new Date().toISOString(),
           };
           mockDb.clients.push(newClient);
           resolve(newClient);
       }, 500);
   }),
-  // --- Quotes ---
   getQuote: (userId: number, id: number): Promise<Quote> => new Promise((resolve, reject) => {
       setTimeout(() => {
           const quote = mockDb.quotes.find(q => q.id === id);
@@ -221,7 +215,6 @@ const mockApi = {
   })
 };
 
-// --- API UTILS ---
 const calculateQuoteTotals = (quote: any): Quote => {
     const items = mockDb.quoteItems.filter(i => i.quote_id === quote.id).map(item => ({...item, total_price: (parseFloat(item.quantity) * parseFloat(item.unit_price)).toFixed(2) }));
     const work_amount = items.filter(i => i.type === 'work').reduce((sum, i) => sum + parseFloat(i.total_price), 0);
@@ -241,7 +234,7 @@ const calculateProjectTotals = (project: any): Project => {
     return { ...project, total_quote_amount: total_quote_amount.toFixed(2), total_expenses: total_expenses.toFixed(2), total_payments_received: total_payments_received.toFixed(2), expected_profit: expected_profit.toFixed(2), balance_due: balance_due.toFixed(2) };
 };
 
-// --- SERVICES (Data Fetching Layer) ---
+// --- SERVICES ---
 const authService = {
   login: (data: LoginData) => mockApi.login(data),
   register: (data: RegisterData) => mockApi.register(data),
@@ -252,6 +245,7 @@ const authService = {
   },
   updateProfile: (data: Partial<User>) => {
     const userId = JSON.parse(localStorage.getItem('user_id') || 'null');
+    if (!userId) return Promise.reject("Not logged in");
     return mockApi.updateProfile(userId, data);
   }
 };
@@ -286,10 +280,7 @@ const quotesService = {
   },
 };
 
-
 // --- UI COMPONENTS ---
-
-// components/ui/Button.tsx
 const Button: React.FC<React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'primary' | 'secondary' | 'outline' | 'danger'; size?: 'sm' | 'md' | 'lg'; loading?: boolean; }> = ({ variant = 'primary', size = 'md', loading = false, disabled, className, children, ...props }) => {
   const baseClasses = 'inline-flex items-center justify-center rounded-md font-medium focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-150';
   const variants = { primary: 'bg-blue-600 hover:bg-blue-700 text-white focus:ring-blue-500', secondary: 'bg-gray-600 hover:bg-gray-700 text-white focus:ring-gray-500', outline: 'border border-gray-300 bg-white hover:bg-gray-50 text-gray-700 focus:ring-blue-500', danger: 'bg-red-600 hover:bg-red-700 text-white focus:ring-red-500' };
@@ -302,7 +293,6 @@ const Button: React.FC<React.ButtonHTMLAttributes<HTMLButtonElement> & { variant
   );
 };
 
-// components/layout/Header.tsx
 const Header: React.FC = () => {
     const { user, logout } = useAuth();
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -337,7 +327,6 @@ const Header: React.FC = () => {
     );
 };
 
-// components/layout/Sidebar.tsx
 const Sidebar: React.FC = () => {
     const navItems = [
         { name: 'Все проекты', href: '/projects', icon: FolderOpen, exact: true },
@@ -357,13 +346,11 @@ const Sidebar: React.FC = () => {
     );
 };
 
-// components/layout/Layout.tsx
 const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => (
     <div className="min-h-screen bg-gray-50"><Header /><div className="flex"><Sidebar /><main className="flex-1 p-4 sm:p-6 lg:p-8"><div className="max-w-7xl mx-auto">{children}</div></main></div></div>
 );
 
 // --- CONTEXT ---
-// contexts/AuthContext.tsx
 const AuthContext = createContext<any>(undefined);
 const useAuth = () => useContext(AuthContext);
 
@@ -437,8 +424,6 @@ const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
 };
 
 // --- PAGES ---
-
-// pages/auth/LoginPage.tsx
 const LoginPage: React.FC = () => {
     const { login } = useAuth();
     const [showPassword, setShowPassword] = useState(false);
@@ -457,7 +442,6 @@ const LoginPage: React.FC = () => {
     );
 };
 
-// pages/auth/RegisterPage.tsx
 const RegisterPage: React.FC = () => {
     const { register: registerUser } = useAuth();
     const [showPassword, setShowPassword] = useState(false);
@@ -477,7 +461,6 @@ const RegisterPage: React.FC = () => {
     );
 };
 
-// pages/projects/ProjectsListPage.tsx
 const ProjectsListPage: React.FC = () => {
     const { hasActiveAccess } = useAuth();
     const [searchTerm, setSearchTerm] = useState('');
@@ -504,34 +487,77 @@ const ProjectsListPage: React.FC = () => {
     );
 };
 
-// pages/projects/CreateProjectPage.tsx
+interface CreateProjectFormData {
+  title: string;
+  address: string;
+  client_id?: number;
+  new_client_name?: string;
+  new_client_phone?: string;
+  new_client_email?: string;
+  notes: string;
+}
+
 const CreateProjectPage: React.FC = () => {
     const navigate = useNavigate();
     const queryClient = useTanstackQueryClient();
-    const { data: clients = [] } = useQuery<Client[], Error>({ queryKey: ['clients'], queryFn: projectsService.getClients });
-    const { register, handleSubmit, watch, formState: { errors } } = useForm<any>();
-    const createProjectMutation = useMutation<Project, Error, Partial<Project>>({ mutationFn: projectsService.createProject, onSuccess: data => { toast.success('Проект создан!'); queryClient.invalidateQueries({ queryKey: ['projects'] }); navigate(`/projects/${data.id}`); }, onError: () => toast.error('Ошибка создания проекта') });
-    const createClientMutation = useMutation<Client, Error, Partial<Client>>({ mutationFn: projectsService.createClient, onSuccess: () => queryClient.invalidateQueries({ queryKey: ['clients'] }) });
-    const isNewClient = watch('client_id') === '-1';
-    const onSubmit = async (data: any) => {
-        let finalClientId = data.client_id === '-1' ? undefined : parseInt(data.client_id, 10);
+    
+    const { data: clients = [] } = useQuery<Client[], Error>({ 
+        queryKey: ['clients'], 
+        queryFn: projectsService.getClients 
+    });
+
+    const { register, handleSubmit, watch, formState: { errors } } = useForm<CreateProjectFormData>();
+    
+    const createProjectMutation = useMutation<Project, Error, Partial<Project>>({ 
+        mutationFn: projectsService.createProject, 
+        onSuccess: (data) => { 
+            toast.success('Проект создан!'); 
+            queryClient.invalidateQueries({ queryKey: ['projects'] }); 
+            navigate(`/projects/${data.id}`); 
+        }, 
+        onError: () => toast.error('Ошибка создания проекта') 
+    });
+
+    const createClientMutation = useMutation<Client, Error, Partial<Client>>({ 
+        mutationFn: projectsService.createClient, 
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['clients'] });
+        } 
+    });
+    
+    const clientId = watch('client_id');
+    const isNewClient = clientId === -1;
+
+    const onSubmit = async (data: CreateProjectFormData) => {
+        let finalClientId: number | undefined = data.client_id;
+        
         if (isNewClient && data.new_client_name) {
             try {
-                const newClient = await createClientMutation.mutateAsync({ name: data.new_client_name, phone: data.new_client_phone, email: data.new_client_email });
+                const newClient = await createClientMutation.mutateAsync({ 
+                    name: data.new_client_name, 
+                    phone: data.new_client_phone, 
+                    email: data.new_client_email 
+                });
                 finalClientId = newClient.id;
             } catch (error) {
                 toast.error('Ошибка создания клиента');
                 return;
             }
         }
-        await createProjectMutation.mutateAsync({ title: data.title, address: data.address, client_id: finalClientId, notes: data.notes });
+        
+        await createProjectMutation.mutateAsync({ 
+            title: data.title, 
+            address: data.address, 
+            client_id: finalClientId, 
+            notes: data.notes 
+        });
     };
+
     return (
-        <div className="max-w-3xl mx-auto"><div className="mb-8"><button onClick={() => navigate('/projects')} className="flex items-center text-sm text-gray-500 hover:text-gray-700 mb-4"><ArrowLeft size={16} className="mr-2" />Назад к проектам</button><h1 className="text-2xl font-bold text-gray-900">Новый проект</h1><p className="mt-1 text-sm text-gray-500">Заполните информацию, чтобы создать новый объект</p></div><div className="card"><form onSubmit={handleSubmit(onSubmit)} className="space-y-6"><div><label htmlFor="title" className="form-label">Название проекта *</label><input id="title" type="text" className="form-input" placeholder="Ремонт квартиры на ул. Ленина, 10" {...register('title', { required: 'Название проекта обязательно' })} />{errors.title && <p className="form-error">{errors.title.message as string}</p>}</div><div><label htmlFor="address" className="form-label">Адрес объекта</label><textarea id="address" rows={2} className="form-input" placeholder="г. Москва, ул. Ленина, д. 10, кв. 25" {...register('address')} /></div><div><label htmlFor="client_id" className="form-label">Клиент</label><select id="client_id" className="form-input" {...register('client_id')}><option value="">Без клиента</option><option value="-1">+ Создать нового клиента</option>{clients.map((c: Client) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>{isNewClient && <div className="bg-gray-50 p-4 rounded-lg space-y-4 border"><h4 className="font-medium">Данные нового клиента</h4><div><label htmlFor="new_client_name" className="form-label">Имя *</label><input id="new_client_name" type="text" className="form-input" {...register('new_client_name', { required: isNewClient })} />{errors.new_client_name && <p className="form-error">Имя обязательно</p>}</div><div className="grid sm:grid-cols-2 gap-4"><div><label htmlFor="new_client_phone" className="form-label">Телефон</label><input id="new_client_phone" type="tel" className="form-input" {...register('new_client_phone')} /></div><div><label htmlFor="new_client_email" className="form-label">Email</label><input id="new_client_email" type="email" className="form-input" {...register('new_client_email')} /></div></div></div>}<div><label htmlFor="notes" className="form-label">Заметки</label><textarea id="notes" rows={4} className="form-input" {...register('notes')} /></div><div className="flex justify-end space-x-3 pt-4 border-t"><Button type="button" variant="outline" onClick={() => navigate('/projects')}>Отмена</Button><Button type="submit" loading={createProjectMutation.isLoading || createClientMutation.isLoading}>Создать проект</Button></div></form></div></div>
+        <div className="max-w-3xl mx-auto"><div className="mb-8"><button onClick={() => navigate('/projects')} className="flex items-center text-sm text-gray-500 hover:text-gray-700 mb-4"><ArrowLeft size={16} className="mr-2" />Назад к проектам</button><h1 className="text-2xl font-bold text-gray-900">Новый проект</h1><p className="mt-1 text-sm text-gray-500">Заполните информацию, чтобы создать новый объект</p></div><div className="card"><form onSubmit={handleSubmit(onSubmit)} className="space-y-6"><div><label htmlFor="title" className="form-label">Название проекта *</label><input id="title" type="text" className="form-input" placeholder="Ремонт квартиры на ул. Ленина, 10" {...register('title', { required: 'Название проекта обязательно' })} />{errors.title && <p className="form-error">{errors.title.message}</p>}</div><div><label htmlFor="address" className="form-label">Адрес объекта</label><textarea id="address" rows={2} className="form-input" placeholder="г. Москва, ул. Ленина, д. 10, кв. 25" {...register('address')} /></div><div><label htmlFor="client_id" className="form-label">Клиент</label><select id="client_id" className="form-input" {...register('client_id', { valueAsNumber: true})}><option value="">Без клиента</option><option value={-1}>+ Создать нового клиента</option>{clients.map((c: Client) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>{isNewClient && <div className="bg-gray-50 p-4 rounded-lg space-y-4 border"><h4 className="font-medium">Данные нового клиента</h4><div><label htmlFor="new_client_name" className="form-label">Имя *</label><input id="new_client_name" type="text" className="form-input" {...register('new_client_name', { required: isNewClient })} />{errors.new_client_name && <p className="form-error">Имя обязательно</p>}</div><div className="grid sm:grid-cols-2 gap-4"><div><label htmlFor="new_client_phone" className="form-label">Телефон</label><input id="new_client_phone" type="tel" className="form-input" {...register('new_client_phone')} /></div><div><label htmlFor="new_client_email" className="form-label">Email</label><input id="new_client_email" type="email" className="form-input" {...register('new_client_email')} /></div></div></div>}<div><label htmlFor="notes" className="form-label">Заметки</label><textarea id="notes" rows={4} className="form-input" {...register('notes')} /></div><div className="flex justify-end space-x-3 pt-4 border-t"><Button type="button" variant="outline" onClick={() => navigate('/projects')}>Отмена</Button><Button type="submit" loading={createProjectMutation.isLoading || createClientMutation.isLoading}>Создать проект</Button></div></form></div></div>
     );
 };
 
-// pages/projects/ProjectDetailPage.tsx
 const ProjectDetailPage: React.FC = () => {
     const { id } = useParams<{ id: string }>();
     const { data: project, isLoading, error } = useQuery<ProjectDetail, Error>({ queryKey: ['project', Number(id)], queryFn: () => projectsService.getProject(Number(id)), enabled: !!id });
@@ -545,7 +571,6 @@ const ProjectDetailPage: React.FC = () => {
     );
 };
 
-// pages/quotes/QuoteDetailPage.tsx
 const QuoteDetailPage: React.FC = () => {
     const { id } = useParams<{ id: string }>();
     const { data: quote, isLoading, error } = useQuery<Quote, Error>({ queryKey: ['quote', Number(id)], queryFn: () => quotesService.getQuote(Number(id)), enabled: !!id });
@@ -562,10 +587,40 @@ const QuoteDetailPage: React.FC = () => {
     );
 };
 
-// ... other pages would be here ...
-const ProfilePage: React.FC = () => { /* ... ProfilePage implementation ... */ return <div>Profile Page</div>; };
-const SubscriptionPage: React.FC = () => { /* ... SubscriptionPage implementation ... */ return <div>Subscription Page</div>; };
-const PublicQuotePage: React.FC = () => { /* ... PublicQuotePage implementation ... */ return <div>Public Quote Page</div>; };
+const ProfilePage: React.FC = () => {
+    const { user, updateProfile } = useAuth();
+    const [isLoading, setIsLoading] = useState(false);
+    const { register, handleSubmit, formState: { errors, isDirty } } = useForm<Partial<User>>({
+        defaultValues: { first_name: user?.first_name, last_name: user?.last_name, company_name: user?.company_name, phone: user?.phone }
+    });
+    const onSubmit = async (data: Partial<User>) => {
+        setIsLoading(true);
+        try {
+            await updateProfile(data);
+            toast.success('Профиль обновлен');
+        } catch (error) { } 
+        finally { setIsLoading(false); }
+    };
+    if (!user) return null;
+    return (
+        <div className="space-y-6"><h1 className="text-2xl font-bold">Профиль</h1>
+            <div className="card max-w-2xl"><form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+                <div className="flex items-center space-x-4"><div className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center text-gray-500"><User size={32} /></div><div><h3 className="text-lg font-medium">{user.display_name}</h3><p className="text-sm text-gray-500">{user.email}</p></div></div>
+                <div className="grid md:grid-cols-2 gap-6">
+                    <div><label htmlFor="first_name" className="form-label">Имя</label><input id="first_name" type="text" className="form-input" {...register('first_name', { required: 'Имя обязательно' })} />{errors.first_name && <p className="form-error">{errors.first_name.message}</p>}</div>
+                    <div><label htmlFor="last_name" className="form-label">Фамилия</label><input id="last_name" type="text" className="form-input" {...register('last_name', { required: 'Фамилия обязательна' })} />{errors.last_name && <p className="form-error">{errors.last_name.message}</p>}</div>
+                </div>
+                <div><label htmlFor="company_name" className="form-label">Название компании</label><input id="company_name" type="text" className="form-input" {...register('company_name')} /></div>
+                <div><label htmlFor="phone" className="form-label">Телефон</label><input id="phone" type="tel" className="form-input" {...register('phone')} /></div>
+                <div className="flex justify-end"><Button type="submit" loading={isLoading} disabled={!isDirty}>Сохранить</Button></div>
+            </form></div>
+        </div>
+    );
+};
+
+const SubscriptionPage: React.FC = () => (
+    <div className="space-y-6"><h1 className="text-2xl font-bold">Подписка</h1><div className="card text-center"><p>Страница управления подпиской находится в разработке.</p></div></div>
+);
 
 // --- APP SETUP ---
 const queryClient = new QueryClient();
@@ -596,6 +651,7 @@ const App = () => (
                     <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
                     <Route path="/subscription" element={<ProtectedRoute><SubscriptionPage /></ProtectedRoute>} />
                     <Route path="/" element={<Navigate to="/projects" replace />} />
+                    <Route path="*" element={<Navigate to="/projects" replace />} />
                 </Routes>
                 <Toaster position="top-right" />
             </Router>
