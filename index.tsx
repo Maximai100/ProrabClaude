@@ -616,7 +616,7 @@ const ProjectsListPage: React.FC = () => {
 interface CreateProjectFormData {
   title: string;
   address: string;
-  client_id?: number;
+  client_id?: number | string;
   new_client_name?: string;
   new_client_phone?: string;
   new_client_email?: string;
@@ -652,10 +652,10 @@ const CreateProjectPage: React.FC = () => {
     });
     
     const clientId = watch('client_id');
-    const isNewClient = clientId === -1;
+    const isNewClient = String(clientId) === '-1';
 
     const onSubmit = async (data: CreateProjectFormData) => {
-        let finalClientId: number | undefined = data.client_id;
+        let finalClientId: number | undefined = typeof data.client_id === 'string' ? undefined : data.client_id;
         
         if (isNewClient && data.new_client_name) {
             try {
@@ -680,7 +680,7 @@ const CreateProjectPage: React.FC = () => {
     };
 
     return (
-        <div className="max-w-3xl mx-auto"><div className="mb-8"><button onClick={() => navigate('/projects')} className="flex items-center text-sm text-gray-500 hover:text-gray-700 mb-4"><ArrowLeft size={16} className="mr-2" />Назад к проектам</button><h1 className="text-2xl font-bold text-gray-900">Новый проект</h1><p className="mt-1 text-sm text-gray-500">Заполните информацию, чтобы создать новый объект</p></div><div className="card"><form onSubmit={handleSubmit(onSubmit)} className="space-y-6"><div><label htmlFor="title" className="form-label">Название проекта *</label><input id="title" type="text" className="form-input" placeholder="Ремонт квартиры на ул. Ленина, 10" {...register('title', { required: 'Название проекта обязательно' })} />{errors.title && <p className="form-error">{errors.title.message}</p>}</div><div><label htmlFor="address" className="form-label">Адрес объекта</label><textarea id="address" rows={2} className="form-input" placeholder="г. Москва, ул. Ленина, д. 10, кв. 25" {...register('address')} /></div><div><label htmlFor="client_id" className="form-label">Клиент</label><select id="client_id" className="form-input" {...register('client_id', { valueAsNumber: true})}><option value="">Без клиента</option><option value={-1}>+ Создать нового клиента</option>{clients.map((c: Client) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>{isNewClient && <div className="bg-gray-50 p-4 rounded-lg space-y-4 border"><h4 className="font-medium">Данные нового клиента</h4><div><label htmlFor="new_client_name" className="form-label">Имя *</label><input id="new_client_name" type="text" className="form-input" {...register('new_client_name', { required: isNewClient })} />{errors.new_client_name && <p className="form-error">Имя обязательно</p>}</div><div className="grid sm:grid-cols-2 gap-4"><div><label htmlFor="new_client_phone" className="form-label">Телефон</label><input id="new_client_phone" type="tel" className="form-input" {...register('new_client_phone')} /></div><div><label htmlFor="new_client_email" className="form-label">Email</label><input id="new_client_email" type="email" className="form-input" {...register('new_client_email')} /></div></div></div>}<div><label htmlFor="notes" className="form-label">Заметки</label><textarea id="notes" rows={4} className="form-input" {...register('notes')} /></div><div className="flex justify-end space-x-3 pt-4 border-t"><Button type="button" variant="outline" onClick={() => navigate('/projects')}>Отмена</Button><Button type="submit" loading={createProjectMutation.isPending || createClientMutation.isPending}>Создать проект</Button></div></form></div></div>
+        <div className="max-w-3xl mx-auto"><div className="mb-8"><button onClick={() => navigate('/projects')} className="flex items-center text-sm text-gray-500 hover:text-gray-700 mb-4"><ArrowLeft size={16} className="mr-2" />Назад к проектам</button><h1 className="text-2xl font-bold text-gray-900">Новый проект</h1><p className="mt-1 text-sm text-gray-500">Заполните информацию, чтобы создать новый объект</p></div><div className="card"><form onSubmit={handleSubmit(onSubmit)} className="space-y-6"><div><label htmlFor="title" className="form-label">Название проекта *</label><input id="title" type="text" className="form-input" placeholder="Ремонт квартиры на ул. Ленина, 10" {...register('title', { required: 'Название проекта обязательно' })} />{errors.title && <p className="form-error">{errors.title.message}</p>}</div><div><label htmlFor="address" className="form-label">Адрес объекта</label><textarea id="address" rows={2} className="form-input" placeholder="г. Москва, ул. Ленина, д. 10, кв. 25" {...register('address')} /></div><div><label htmlFor="client_id" className="form-label">Клиент</label><select id="client_id" className="form-input" {...register('client_id')}><option value="">Без клиента</option><option value="-1">+ Создать нового клиента</option>{clients.map((c: Client) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>{isNewClient && <div className="bg-gray-50 p-4 rounded-lg space-y-4 border"><h4 className="font-medium">Данные нового клиента</h4><div><label htmlFor="new_client_name" className="form-label">Имя *</label><input id="new_client_name" type="text" className="form-input" {...register('new_client_name', { required: isNewClient ? 'Имя клиента обязательно' : false })} />{errors.new_client_name && <p className="form-error">{errors.new_client_name.message}</p>}</div><div className="grid sm:grid-cols-2 gap-4"><div><label htmlFor="new_client_phone" className="form-label">Телефон</label><input id="new_client_phone" type="tel" className="form-input" {...register('new_client_phone')} /></div><div><label htmlFor="new_client_email" className="form-label">Email</label><input id="new_client_email" type="email" className="form-input" {...register('new_client_email')} /></div></div></div>}<div><label htmlFor="notes" className="form-label">Заметки</label><textarea id="notes" rows={4} className="form-input" {...register('notes')} /></div><div className="flex justify-end space-x-3 pt-4 border-t"><Button type="button" variant="outline" onClick={() => navigate('/projects')}>Отмена</Button><Button type="submit" loading={createProjectMutation.isPending || createClientMutation.isPending}>Создать проект</Button></div></form></div></div>
     );
 };
 
@@ -700,7 +700,7 @@ const AddExpenseForm: React.FC<{ projectId: number; onClose: () => void }> = ({ 
 
     return (
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-            <div><label className="form-label">Сумма *</label><input type="number" className="form-input" {...register('amount', { required: true, valueAsNumber: true })} /></div>
+            <div><label className="form-label">Сумма *</label><input type="number" step="0.01" className="form-input" {...register('amount', { required: 'Сумма обязательна', valueAsNumber: true, min: {value: 0.01, message: "Сумма должна быть больше нуля"} })} />{errors.amount && <p className="form-error">{errors.amount.message}</p>}</div>
             <div><label className="form-label">Описание</label><input type="text" className="form-input" {...register('description')} /></div>
             <div><label className="form-label">Дата *</label><input type="date" className="form-input" defaultValue={format(new Date(), 'yyyy-MM-dd')} {...register('expense_date', { required: true })} /></div>
             <div className="flex justify-end gap-3 pt-2"><Button variant="outline" type="button" onClick={onClose}>Отмена</Button><Button type="submit" loading={addExpenseMutation.isPending}>Добавить</Button></div>
@@ -724,10 +724,42 @@ const AddPaymentForm: React.FC<{ projectId: number; onClose: () => void }> = ({ 
 
     return (
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-            <div><label className="form-label">Сумма *</label><input type="number" className="form-input" {...register('amount', { required: true, valueAsNumber: true })} /></div>
+            <div><label className="form-label">Сумма *</label><input type="number" step="0.01" className="form-input" {...register('amount', { required: 'Сумма обязательна', valueAsNumber: true, min: {value: 0.01, message: "Сумма должна быть больше нуля"} })} />{errors.amount && <p className="form-error">{errors.amount.message}</p>}</div>
             <div><label className="form-label">Описание</label><input type="text" className="form-input" {...register('description')} /></div>
             <div><label className="form-label">Дата *</label><input type="date" className="form-input" defaultValue={format(new Date(), 'yyyy-MM-dd')} {...register('payment_date', { required: true })} /></div>
             <div className="flex justify-end gap-3 pt-2"><Button variant="outline" type="button" onClick={onClose}>Отмена</Button><Button type="submit" loading={addPaymentMutation.isPending}>Добавить</Button></div>
+        </form>
+    );
+};
+
+const AddQuoteForm: React.FC<{ projectId: number; onClose: () => void }> = ({ projectId, onClose }) => {
+    const queryClient = useTanstackQueryClient();
+    const { register, handleSubmit, formState: { errors } } = useForm<{ title: string }>();
+    const createQuoteMutation = useMutation<Quote, Error, { title: string }>({
+        mutationFn: (data) => projectsService.createQuote(projectId, data),
+        onSuccess: () => {
+            toast.success("Смета создана");
+            queryClient.invalidateQueries({ queryKey: ['project', projectId] });
+            onClose();
+        },
+        onError: () => toast.error("Ошибка создания сметы"),
+    });
+
+    const onSubmit = (data: { title: string }) => {
+        createQuoteMutation.mutate(data);
+    };
+
+    return (
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+            <div>
+                <label htmlFor="quote-title" className="form-label">Название сметы *</label>
+                <input id="quote-title" type="text" className="form-input" {...register('title', { required: 'Название обязательно' })} />
+                {errors.title && <p className="form-error">{errors.title.message}</p>}
+            </div>
+            <div className="flex justify-end gap-3 pt-2">
+                <Button variant="outline" type="button" onClick={onClose}>Отмена</Button>
+                <Button type="submit" loading={createQuoteMutation.isPending}>Создать</Button>
+            </div>
         </form>
     );
 };
@@ -755,11 +787,19 @@ const ProjectDetailPage: React.FC = () => {
         onError: () => toast.error("Ошибка удаления платежа"),
         onSettled: () => { setModal(null); setItemToDelete(null); }
     });
+    
+    const deleteQuoteMutation = useMutation<void, Error, number>({
+        mutationFn: projectsService.deleteQuote,
+        onSuccess: () => { toast.success("Смета удалена"); queryClient.invalidateQueries({ queryKey: ['project', projectId] }); },
+        onError: () => toast.error("Ошибка удаления сметы"),
+        onSettled: () => { setModal(null); setItemToDelete(null); }
+    });
 
     const handleDelete = () => {
         if (itemToDelete) {
             if (modal === 'deleteExpense') deleteExpenseMutation.mutate(itemToDelete.id);
             if (modal === 'deletePayment') deletePaymentMutation.mutate(itemToDelete.id);
+            if (modal === 'deleteQuote') deleteQuoteMutation.mutate(itemToDelete.id);
         }
     };
     
@@ -767,18 +807,90 @@ const ProjectDetailPage: React.FC = () => {
     if (error || !project) return <div className="text-center text-red-600">Не удалось загрузить проект.</div>;
     
     return (
-        <div className="space-y-6"><div><Link to="/projects" className="flex items-center text-sm text-gray-500 hover:text-gray-700 mb-4"><ArrowLeft size={16} className="mr-2" />Назад к проектам</Link><div className="flex flex-col sm:flex-row sm:items-center sm:justify-between"><div><h1 className="text-2xl font-bold text-gray-900">{project.title}</h1><p className="mt-1 text-sm text-gray-500">{project.address}</p></div><div className="mt-4 sm:mt-0"><Button variant="outline"><Edit size={16} className="mr-2" />Редактировать</Button></div></div></div><div className="grid grid-cols-2 md:grid-cols-4 gap-4"><div className="card text-center"><p className="text-sm text-gray-500">Сумма смет</p><p className="text-xl font-bold currency">{formatCurrency(project.total_quote_amount)}</p></div><div className="card text-center"><p className="text-sm text-gray-500">Расходы</p><p className="text-xl font-bold currency">{formatCurrency(project.total_expenses)}</p></div><div className="card text-center"><p className="text-sm text-gray-500">Оплачено</p><p className="text-xl font-bold currency">{formatCurrency(project.total_payments_received)}</p></div><div className="card text-center"><p className="text-sm text-gray-500">Прибыль</p><p className={clsx('text-xl font-bold currency', Number(project.expected_profit) >= 0 ? 'currency-positive' : 'currency-negative')}>{formatCurrency(project.expected_profit)}</p></div></div><div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6"><div className="card space-y-4"><div className="flex justify-between items-center"><h2 className="text-lg font-semibold flex items-center"><FileText size={20} className="mr-2" />Сметы</h2><Button size="sm"><Plus size={14} className="mr-1" />Создать смету</Button></div>{project.quotes.length > 0 ? <ul className="divide-y">{project.quotes.map(quote => <li key={quote.id} className="py-2 flex justify-between items-center"><Link to={`/quotes/${quote.id}`} className="text-blue-600 hover:underline">{quote.title}</Link><span className="font-medium currency">{formatCurrency(quote.total_amount)}</span></li>)}</ul> : <p className="text-sm text-gray-500 text-center py-4">Смет пока нет</p>}</div><div className="card space-y-4"><div className="flex justify-between items-center"><h2 className="text-lg font-semibold flex items-center"><Receipt size={20} className="mr-2" />Расходы</h2><Button size="sm" onClick={() => setModal('addExpense')}><Plus size={14} className="mr-1" />Добавить</Button></div>{project.expenses.length > 0 ? <ul className="divide-y">{project.expenses.map(expense => <li key={expense.id} className="py-2 flex justify-between items-center group"><div><p>{expense.description || "Расход"}</p><p className="text-xs text-gray-400">{format(new Date(expense.expense_date), 'dd.MM.yyyy')}</p></div><div className="flex items-center"><span className="font-medium currency mr-4">{formatCurrency(expense.amount)}</span><button onClick={() => { setItemToDelete(expense); setModal('deleteExpense'); }} className="text-gray-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 size={16}/></button></div></li>)}</ul> : <p className="text-sm text-gray-500 text-center py-4">Расходов пока нет</p>}</div><div className="card space-y-4"><div className="flex justify-between items-center"><h2 className="text-lg font-semibold flex items-center"><Banknote size={20} className="mr-2" />Платежи</h2><Button size="sm" onClick={() => setModal('addPayment')}><Plus size={14} className="mr-1" />Добавить</Button></div>{project.payments_received.length > 0 ? <ul className="divide-y">{project.payments_received.map(payment => <li key={payment.id} className="py-2 flex justify-between items-center group"><div><p>{payment.description || "Платеж"}</p><p className="text-xs text-gray-400">{format(new Date(payment.payment_date), 'dd.MM.yyyy')}</p></div><div className="flex items-center"><span className="font-medium currency mr-4">{formatCurrency(payment.amount)}</span><button onClick={() => { setItemToDelete(payment); setModal('deletePayment'); }} className="text-gray-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 size={16}/></button></div></li>)}</ul> : <p className="text-sm text-gray-500 text-center py-4">Платежей пока нет</p>}</div></div>
+        <div className="space-y-6"><div><Link to="/projects" className="flex items-center text-sm text-gray-500 hover:text-gray-700 mb-4"><ArrowLeft size={16} className="mr-2" />Назад к проектам</Link><div className="flex flex-col sm:flex-row sm:items-center sm:justify-between"><div><h1 className="text-2xl font-bold text-gray-900">{project.title}</h1><p className="mt-1 text-sm text-gray-500">{project.address}</p></div><div className="mt-4 sm:mt-0"><Button variant="outline"><Edit size={16} className="mr-2" />Редактировать</Button></div></div></div><div className="grid grid-cols-2 md:grid-cols-4 gap-4"><div className="card text-center"><p className="text-sm text-gray-500">Сумма смет</p><p className="text-xl font-bold currency">{formatCurrency(project.total_quote_amount)}</p></div><div className="card text-center"><p className="text-sm text-gray-500">Расходы</p><p className="text-xl font-bold currency">{formatCurrency(project.total_expenses)}</p></div><div className="card text-center"><p className="text-sm text-gray-500">Оплачено</p><p className="text-xl font-bold currency">{formatCurrency(project.total_payments_received)}</p></div><div className="card text-center"><p className="text-sm text-gray-500">Прибыль</p><p className={clsx('text-xl font-bold currency', Number(project.expected_profit) >= 0 ? 'currency-positive' : 'currency-negative')}>{formatCurrency(project.expected_profit)}</p></div></div><div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6"><div className="card space-y-4"><div className="flex justify-between items-center"><h2 className="text-lg font-semibold flex items-center"><FileText size={20} className="mr-2" />Сметы</h2><Button size="sm" onClick={() => setModal('addQuote')}><Plus size={14} className="mr-1" />Создать смету</Button></div>{project.quotes.length > 0 ? <ul className="divide-y">{project.quotes.map(quote => <li key={quote.id} className="py-2 flex justify-between items-center group"><Link to={`/quotes/${quote.id}`} className="text-blue-600 hover:underline flex-1 truncate pr-4">{quote.title}</Link><div className="flex items-center"><span className="font-medium currency mr-4">{formatCurrency(quote.total_amount)}</span><button onClick={() => { setItemToDelete(quote); setModal('deleteQuote'); }} className="text-gray-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 size={16}/></button></div></li>)}</ul> : <p className="text-sm text-gray-500 text-center py-4">Смет пока нет</p>}</div><div className="card space-y-4"><div className="flex justify-between items-center"><h2 className="text-lg font-semibold flex items-center"><Receipt size={20} className="mr-2" />Расходы</h2><Button size="sm" onClick={() => setModal('addExpense')}><Plus size={14} className="mr-1" />Добавить</Button></div>{project.expenses.length > 0 ? <ul className="divide-y">{project.expenses.map(expense => <li key={expense.id} className="py-2 flex justify-between items-center group"><div><p>{expense.description || "Расход"}</p><p className="text-xs text-gray-400">{format(new Date(expense.expense_date), 'dd.MM.yyyy')}</p></div><div className="flex items-center"><span className="font-medium currency mr-4">{formatCurrency(expense.amount)}</span><button onClick={() => { setItemToDelete(expense); setModal('deleteExpense'); }} className="text-gray-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 size={16}/></button></div></li>)}</ul> : <p className="text-sm text-gray-500 text-center py-4">Расходов пока нет</p>}</div><div className="card space-y-4"><div className="flex justify-between items-center"><h2 className="text-lg font-semibold flex items-center"><Banknote size={20} className="mr-2" />Платежи</h2><Button size="sm" onClick={() => setModal('addPayment')}><Plus size={14} className="mr-1" />Добавить</Button></div>{project.payments_received.length > 0 ? <ul className="divide-y">{project.payments_received.map(payment => <li key={payment.id} className="py-2 flex justify-between items-center group"><div><p>{payment.description || "Платеж"}</p><p className="text-xs text-gray-400">{format(new Date(payment.payment_date), 'dd.MM.yyyy')}</p></div><div className="flex items-center"><span className="font-medium currency mr-4">{formatCurrency(payment.amount)}</span><button onClick={() => { setItemToDelete(payment); setModal('deletePayment'); }} className="text-gray-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 size={16}/></button></div></li>)}</ul> : <p className="text-sm text-gray-500 text-center py-4">Платежей пока нет</p>}</div></div>
             <Modal isOpen={modal === 'addExpense'} onClose={() => setModal(null)} title="Добавить расход"><AddExpenseForm projectId={projectId} onClose={() => setModal(null)}/></Modal>
             <Modal isOpen={modal === 'addPayment'} onClose={() => setModal(null)} title="Добавить платеж"><AddPaymentForm projectId={projectId} onClose={() => setModal(null)}/></Modal>
-            <ConfirmationModal isOpen={modal === 'deleteExpense' || modal === 'deletePayment'} onClose={() => setModal(null)} onConfirm={handleDelete} title="Подтвердите удаление" message="Вы уверены, что хотите удалить эту запись? Это действие необратимо."/>
+            <Modal isOpen={modal === 'addQuote'} onClose={() => setModal(null)} title="Создать новую смету"><AddQuoteForm projectId={projectId} onClose={() => setModal(null)}/></Modal>
+            <ConfirmationModal isOpen={modal === 'deleteExpense' || modal === 'deletePayment' || modal === 'deleteQuote'} onClose={() => setModal(null)} onConfirm={handleDelete} title="Подтвердите удаление" message="Вы уверены, что хотите удалить эту запись? Это действие необратимо."/>
         </div>
+    );
+};
+
+const AddQuoteItemForm: React.FC<{ quoteId: number; onClose: () => void }> = ({ quoteId, onClose }) => {
+    const queryClient = useTanstackQueryClient();
+    const { register, handleSubmit, formState: { errors } } = useForm<Partial<QuoteItem>>();
+
+    const createItemMutation = useMutation<QuoteItem, Error, Partial<QuoteItem>>({
+        mutationFn: (data) => quotesService.createItem(quoteId, data),
+        onSuccess: () => {
+            toast.success("Позиция добавлена");
+            queryClient.invalidateQueries({ queryKey: ['quote', quoteId] });
+            onClose();
+        },
+        onError: () => toast.error("Ошибка добавления"),
+    });
+
+    const onSubmit = (data: Partial<QuoteItem>) => createItemMutation.mutate(data);
+
+    return (
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+            <div>
+                <label className="form-label">Наименование *</label>
+                <input type="text" className="form-input" {...register('name', { required: 'Наименование обязательно' })} />
+                {errors.name && <p className="form-error">{errors.name.message}</p>}
+            </div>
+            <div>
+                <label className="form-label">Тип *</label>
+                <select className="form-input" {...register('type', { required: true })}>
+                    <option value="work">Работа</option>
+                    <option value="material">Материал</option>
+                </select>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+                <div>
+                    <label className="form-label">Кол-во *</label>
+                    <input type="number" step="0.01" className="form-input" {...register('quantity', { required: 'Количество обязательно', valueAsNumber: true, min: { value: 0.01, message: "Значение должно быть больше 0" } })} />
+                    {errors.quantity && <p className="form-error">{errors.quantity.message}</p>}
+                </div>
+                <div>
+                    <label className="form-label">Ед. изм. *</label>
+                    <input type="text" className="form-input" {...register('unit', { required: 'Ед. изм. обязательна' })} />
+                    {errors.unit && <p className="form-error">{errors.unit.message}</p>}
+                </div>
+            </div>
+            <div>
+                <label className="form-label">Цена за ед., ₽ *</label>
+                <input type="number" step="0.01" className="form-input" {...register('unit_price', { required: 'Цена обязательна', valueAsNumber: true, min: { value: 0, message: "Цена не может быть отрицательной" } })} />
+                {errors.unit_price && <p className="form-error">{errors.unit_price.message}</p>}
+            </div>
+            <div className="flex justify-end gap-3 pt-2">
+                <Button variant="outline" type="button" onClick={onClose}>Отмена</Button>
+                <Button type="submit" loading={createItemMutation.isPending}>Добавить</Button>
+            </div>
+        </form>
     );
 };
 
 const QuoteDetailPage: React.FC = () => {
     const { id } = useParams<{ id: string }>();
-    const { data: quote, isLoading, error } = useQuery<Quote, Error>({ queryKey: ['quote', Number(id)], queryFn: () => quotesService.getQuote(Number(id)), enabled: !!id });
+    const quoteId = Number(id);
+    const queryClient = useTanstackQueryClient();
+    const { data: quote, isLoading, error } = useQuery<Quote, Error>({ queryKey: ['quote', quoteId], queryFn: () => quotesService.getQuote(quoteId), enabled: !!id });
     const formatCurrency = (value: string | number) => new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB' }).format(Number(value));
+
+    const [modal, setModal] = useState<'addItem' | 'deleteItem' | null>(null);
+    const [itemToDelete, setItemToDelete] = useState<QuoteItem | null>(null);
+    
+    const deleteItemMutation = useMutation<void, Error, number>({
+        mutationFn: quotesService.deleteItem,
+        onSuccess: () => {
+            toast.success("Позиция удалена");
+            queryClient.invalidateQueries({ queryKey: ['quote', quoteId] });
+            queryClient.invalidateQueries({ queryKey: ['project'] }); // Invalidate project to update totals
+        },
+        onError: () => toast.error("Ошибка удаления"),
+        onSettled: () => { setModal(null); setItemToDelete(null); }
+    });
 
     if (isLoading) return <div className="spinner h-8 w-8 mx-auto mt-10"></div>;
     if (error || !quote) return <div className="text-center text-red-600">Не удалось загрузить смету.</div>;
@@ -787,7 +899,10 @@ const QuoteDetailPage: React.FC = () => {
     const materialItems = quote.items.filter(item => item.type === 'material');
 
     return (
-        <div className="space-y-6"><div><Link to={`/projects/${quote.project_id}`} className="flex items-center text-sm text-gray-500 hover:text-gray-700 mb-4"><ArrowLeft size={16} className="mr-2" />Назад к проекту</Link><div className="flex flex-col sm:flex-row sm:items-center sm:justify-between"><div><h1 className="text-2xl font-bold text-gray-900">{quote.title}</h1><p className="mt-1 text-sm text-gray-500">Проект: {quote.project_title}</p></div><div className="mt-4 sm:mt-0 flex space-x-2"><Button variant="outline">Поделиться</Button><Button><Plus size={16} className="mr-2" />Добавить позицию</Button></div></div></div><div className="card"><div className="space-y-8"><div><h3 className="text-lg font-semibold mb-2">Работы</h3>{workItems.length > 0 ? <div className="overflow-x-auto"><table className="w-full"><thead><tr className="text-sm text-gray-500 text-left"><th>Наименование</th><th className="text-center">Кол-во</th><th>Ед.</th><th className="text-right">Цена</th><th className="text-right">Сумма</th><th></th></tr></thead><tbody className="divide-y">{workItems.map(item => <tr key={item.id}><td className="py-2">{item.name}</td><td className="py-2 text-center">{item.quantity}</td><td className="py-2">{item.unit}</td><td className="py-2 text-right currency">{formatCurrency(item.unit_price)}</td><td className="py-2 text-right font-semibold currency">{formatCurrency(item.total_price)}</td><td className="text-right"><button className="text-gray-400 hover:text-red-600"><Trash2 size={16}/></button></td></tr>)}</tbody></table></div> : <p className="text-sm text-gray-500">Нет работ</p>}</div><div><h3 className="text-lg font-semibold mb-2">Материалы</h3>{materialItems.length > 0 ? <div className="overflow-x-auto"><table className="w-full"><thead><tr className="text-sm text-gray-500 text-left"><th>Наименование</th><th className="text-center">Кол-во</th><th>Ед.</th><th className="text-right">Цена</th><th className="text-right">Сумма</th><th></th></tr></thead><tbody className="divide-y">{materialItems.map(item => <tr key={item.id}><td className="py-2">{item.name}</td><td className="py-2 text-center">{item.quantity}</td><td className="py-2">{item.unit}</td><td className="py-2 text-right currency">{formatCurrency(item.unit_price)}</td><td className="py-2 text-right font-semibold currency">{formatCurrency(item.total_price)}</td><td className="text-right"><button className="text-gray-400 hover:text-red-600"><Trash2 size={16}/></button></td></tr>)}</tbody></table></div> : <p className="text-sm text-gray-500">Нет материалов</p>}</div><div className="mt-8 flex justify-end"><div className="w-full max-w-sm space-y-3 pt-4 border-t"><div className="flex justify-between"><span className="text-gray-600">Итого по работам:</span><span className="font-medium">{formatCurrency(quote.work_amount)}</span></div><div className="flex justify-between"><span className="text-gray-600">Итого по материалам:</span><span className="font-medium">{formatCurrency(quote.material_amount)}</span></div><div className="flex justify-between text-xl font-bold border-t pt-3"><span>Всего:</span><span>{formatCurrency(quote.total_amount)}</span></div></div></div></div></div></div>
+        <div className="space-y-6"><div><Link to={`/projects/${quote.project_id}`} className="flex items-center text-sm text-gray-500 hover:text-gray-700 mb-4"><ArrowLeft size={16} className="mr-2" />Назад к проекту</Link><div className="flex flex-col sm:flex-row sm:items-center sm:justify-between"><div><h1 className="text-2xl font-bold text-gray-900">{quote.title}</h1><p className="mt-1 text-sm text-gray-500">Проект: {quote.project_title}</p></div><div className="mt-4 sm:mt-0 flex space-x-2"><Button variant="outline">Поделиться</Button><Button onClick={() => setModal('addItem')}><Plus size={16} className="mr-2" />Добавить позицию</Button></div></div></div><div className="card"><div className="space-y-8"><div><h3 className="text-lg font-semibold mb-2">Работы</h3>{workItems.length > 0 ? <div className="overflow-x-auto"><table className="w-full"><thead><tr className="text-sm text-gray-500 text-left"><th>Наименование</th><th className="text-center">Кол-во</th><th>Ед.</th><th className="text-right">Цена</th><th className="text-right">Сумма</th><th></th></tr></thead><tbody className="divide-y">{workItems.map(item => <tr key={item.id} className="group"><td>{item.name}</td><td className="text-center">{item.quantity}</td><td>{item.unit}</td><td className="text-right currency">{formatCurrency(item.unit_price)}</td><td className="text-right font-semibold currency">{formatCurrency(item.total_price)}</td><td className="text-right w-10"><button onClick={() => { setItemToDelete(item); setModal('deleteItem'); }} className="text-gray-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 size={16}/></button></td></tr>)}</tbody></table></div> : <p className="text-sm text-gray-500">Нет работ</p>}</div><div><h3 className="text-lg font-semibold mb-2">Материалы</h3>{materialItems.length > 0 ? <div className="overflow-x-auto"><table className="w-full"><thead><tr className="text-sm text-gray-500 text-left"><th>Наименование</th><th className="text-center">Кол-во</th><th>Ед.</th><th className="text-right">Цена</th><th className="text-right">Сумма</th><th></th></tr></thead><tbody className="divide-y">{materialItems.map(item => <tr key={item.id} className="group"><td>{item.name}</td><td className="text-center">{item.quantity}</td><td>{item.unit}</td><td className="text-right currency">{formatCurrency(item.unit_price)}</td><td className="text-right font-semibold currency">{formatCurrency(item.total_price)}</td><td className="text-right w-10"><button onClick={() => { setItemToDelete(item); setModal('deleteItem'); }} className="text-gray-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 size={16}/></button></td></tr>)}</tbody></table></div> : <p className="text-sm text-gray-500">Нет материалов</p>}</div><div className="mt-8 flex justify-end"><div className="w-full max-w-sm space-y-3 pt-4 border-t"><div className="flex justify-between"><span className="text-gray-600">Итого по работам:</span><span className="font-medium">{formatCurrency(quote.work_amount)}</span></div><div className="flex justify-between"><span className="text-gray-600">Итого по материалам:</span><span className="font-medium">{formatCurrency(quote.material_amount)}</span></div><div className="flex justify-between text-xl font-bold border-t pt-3"><span>Всего:</span><span>{formatCurrency(quote.total_amount)}</span></div></div></div></div></div>
+        <Modal isOpen={modal === 'addItem'} onClose={() => setModal(null)} title="Добавить позицию"><AddQuoteItemForm quoteId={quoteId} onClose={() => setModal(null)} /></Modal>
+        <ConfirmationModal isOpen={modal === 'deleteItem'} onClose={() => setModal(null)} onConfirm={() => itemToDelete && deleteItemMutation.mutate(itemToDelete.id)} title="Подтвердите удаление" message={`Вы уверены, что хотите удалить позицию "${itemToDelete?.name}"?`} />
+        </div>
     );
 };
 
