@@ -655,27 +655,34 @@ const CreateProjectPage: React.FC = () => {
     const isNewClient = String(clientId) === '-1';
 
     const onSubmit = async (data: CreateProjectFormData) => {
-        let finalClientId: number | undefined = typeof data.client_id === 'string' ? undefined : data.client_id;
-        
-        if (isNewClient && data.new_client_name) {
+        const isNewClient = String(data.client_id) === '-1';
+        let finalClientId: number | undefined;
+
+        if (isNewClient) {
+            if (!data.new_client_name) {
+                toast.error("Имя нового клиента обязательно");
+                return;
+            }
             try {
-                const newClient = await createClientMutation.mutateAsync({ 
-                    name: data.new_client_name, 
-                    phone: data.new_client_phone, 
-                    email: data.new_client_email 
+                const newClient = await createClientMutation.mutateAsync({
+                    name: data.new_client_name,
+                    phone: data.new_client_phone,
+                    email: data.new_client_email
                 });
                 finalClientId = newClient.id;
             } catch (error) {
-                toast.error('Ошибка создания клиента');
-                return;
+                toast.error('Ошибка создания нового клиента');
+                return; 
             }
+        } else if (data.client_id && String(data.client_id) !== '') {
+            finalClientId = Number(data.client_id);
         }
-        
-        await createProjectMutation.mutateAsync({ 
-            title: data.title, 
-            address: data.address, 
-            client_id: finalClientId, 
-            notes: data.notes 
+
+        createProjectMutation.mutate({
+            title: data.title,
+            address: data.address,
+            client_id: finalClientId,
+            notes: data.notes
         });
     };
 
@@ -696,7 +703,7 @@ const AddExpenseForm: React.FC<{ projectId: number; onClose: () => void }> = ({ 
         },
         onError: () => toast.error("Ошибка добавления расхода"),
     });
-    const onSubmit = (data: Partial<Expense>) => addExpenseMutation.mutateAsync(data);
+    const onSubmit = (data: Partial<Expense>) => addExpenseMutation.mutate(data);
 
     return (
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
@@ -720,7 +727,7 @@ const AddPaymentForm: React.FC<{ projectId: number; onClose: () => void }> = ({ 
         },
         onError: () => toast.error("Ошибка добавления платежа"),
     });
-    const onSubmit = (data: Partial<ProjectPayment>) => addPaymentMutation.mutateAsync(data);
+    const onSubmit = (data: Partial<ProjectPayment>) => addPaymentMutation.mutate(data);
 
     return (
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
