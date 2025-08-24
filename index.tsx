@@ -9,8 +9,9 @@ import { QueryClient, QueryClientProvider, useQuery, useMutation, useQueryClient
 import toast, { Toaster } from 'react-hot-toast';
 import { useForm } from 'react-hook-form';
 import clsx from 'clsx';
-import { Eye, EyeOff, Plus, Search, Filter, FolderOpen, ArrowLeft, Edit, FileText, Receipt, Menu, X, User, LogOut, Settings, CreditCard, Trash2 } from 'lucide-react';
-import { Transition } from '@headlessui/react';
+import { Eye, EyeOff, Plus, Search, Filter, FolderOpen, ArrowLeft, Edit, FileText, Receipt, Menu, X, User, LogOut, Settings, CreditCard, Trash2, Banknote } from 'lucide-react';
+import { Transition, Dialog } from '@headlessui/react';
+import { format } from 'date-fns';
 
 // --- TYPES ---
 
@@ -32,10 +33,10 @@ interface AuthTokens { access: string; refresh: string; }
 interface AuthResponse { user: User; tokens: AuthTokens; }
 
 interface Client { id: number; userId: number; name: string; phone: string; email: string; created_at: string; }
-interface Project { id: number; title: string; address: string; status: 'active' | 'completed' | 'archived'; notes: string; client?: Client; client_id?: number; total_quote_amount: string; total_expenses: string; total_payments_received: string; expected_profit: string; balance_due: string; created_at: string; updated_at: string; }
-interface Expense { id: number; amount: string; description: string; receipt_photo?: string; expense_date: string; created_at: string; }
-interface ProjectPayment { id: number; amount: string; description: string; payment_date: string; created_at: string; }
-interface QuoteItem { id: number; name: string; type: 'work' | 'material'; unit: string; quantity: string; unit_price: string; total_price: string; order: number; created_at: string; }
+interface Project { id: number; userId: number; title: string; address: string; status: 'active' | 'completed' | 'archived'; notes: string; client?: Client; client_id?: number; total_quote_amount: string; total_expenses: string; total_payments_received: string; expected_profit: string; balance_due: string; created_at: string; updated_at: string; }
+interface Expense { id: number; project_id: number; amount: string; description: string; receipt_photo?: string; expense_date: string; created_at: string; }
+interface ProjectPayment { id: number; project_id: number; amount: string; description: string; payment_date: string; created_at: string; }
+interface QuoteItem { id: number; quote_id: number; name: string; type: 'work' | 'material'; unit: string; quantity: string; unit_price: string; total_price: string; order: number; created_at: string; }
 interface Quote { id: number; project_id: number; title: string; public_id: string; notes: string; total_amount: string; work_amount: string; material_amount: string; items: QuoteItem[]; project_title: string; client_name?: string; created_at: string; updated_at: string; }
 interface ProjectDetail extends Project { quotes: Quote[]; expenses: Expense[]; payments_received: ProjectPayment[]; }
 
@@ -63,6 +64,8 @@ const mockDb = {
         { id: 1, quote_id: 1, name: 'Штукатурка стен', type: 'work', unit: 'м²', quantity: '25.00', unit_price: '600.00', order: 1, created_at: new Date().toISOString() },
         { id: 2, quote_id: 1, name: 'Поклейка обоев', type: 'work', unit: 'м²', quantity: '20.00', unit_price: '400.00', order: 2, created_at: new Date().toISOString() },
         { id: 3, quote_id: 1, name: 'Ламинат 33 класс', type: 'material', unit: 'м²', quantity: '38.00', unit_price: '1250.00', order: 3, created_at: new Date().toISOString() },
+        { id: 4, quote_id: 2, name: 'Прокладка кабеля ВВГ-НГ 3x2.5', type: 'work', unit: 'м', quantity: '150.00', unit_price: '80.00', order: 1, created_at: new Date().toISOString() },
+        { id: 5, quote_id: 2, name: 'Кабель ВВГ-НГ 3x2.5', type: 'material', unit: 'м', quantity: '155.00', unit_price: '95.00', order: 2, created_at: new Date().toISOString() },
     ],
     expenses: [
         { id: 1, project_id: 1, amount: '5000', description: 'Закупка материалов в Леруа', expense_date: new Date().toISOString(), created_at: new Date().toISOString() },
@@ -73,6 +76,7 @@ const mockDb = {
 };
 
 const mockApi = {
+  // ... auth, project, client methods
   login: (data: LoginData): Promise<AuthResponse> => new Promise((resolve, reject) => {
     setTimeout(() => {
         const user = mockDb.users.find(u => u.email === data.email && u.password === data.password);
@@ -143,7 +147,7 @@ const mockApi = {
             projects = projects.filter(p => p.title.toLowerCase().includes(params.search.toLowerCase()) || p.address.toLowerCase().includes(params.search.toLowerCase()));
         }
         const projectsWithData = projects.map(p => ({...p, client: mockDb.clients.find(c => c.id === p.client_id)}));
-        resolve(projectsWithData.map(calculateProjectTotals));
+        resolve(projectsWithData.map(p => calculateProjectTotals(p, p.userId)));
     }, 300);
   }),
   getProject: (userId: number, id: number): Promise<ProjectDetail> => new Promise((resolve, reject) => {
@@ -152,12 +156,12 @@ const mockApi = {
           if (!project) return reject(new Error("Project not found"));
           
           const client = mockDb.clients.find(c => c.id === project.client_id);
-          const quotes = mockDb.quotes.filter(q => q.project_id === id).map(calculateQuoteTotals);
+          const quotes = mockDb.quotes.filter(q => q.project_id === id).map(q => calculateQuoteTotals(q, userId));
           const expenses = mockDb.expenses.filter(e => e.project_id === id);
           const payments = mockDb.payments.filter(p => p.project_id === id);
           
           const projectDetail = { ...project, client, quotes, expenses, payments_received: payments };
-          resolve(calculateProjectTotals(projectDetail) as ProjectDetail);
+          resolve(calculateProjectTotals(projectDetail, userId) as ProjectDetail);
       }, 300);
   }),
   createProject: (userId: number, data: Partial<Project>): Promise<Project> => new Promise((resolve) => {
@@ -174,7 +178,7 @@ const mockApi = {
             updated_at: new Date().toISOString(),
         };
         mockDb.projects.push(newProject);
-        resolve(calculateProjectTotals(newProject));
+        resolve(calculateProjectTotals(newProject, userId));
     }, 500);
   }),
   getClients: (userId: number): Promise<Client[]> => new Promise(resolve => {
@@ -210,12 +214,120 @@ const mockApi = {
               project_title: project.title,
               client_name: client?.name,
           };
-          resolve(calculateQuoteTotals(quoteWithData));
+          resolve(calculateQuoteTotals(quoteWithData, userId));
       }, 300);
-  })
+  }),
+    createExpense: (userId: number, projectId: number, data: Partial<Expense>): Promise<Expense> => new Promise(resolve => {
+        setTimeout(() => {
+            const newExpense: Expense = {
+                id: mockDb.expenses.length + 1,
+                project_id: projectId,
+                amount: data.amount!,
+                description: data.description || '',
+                expense_date: data.expense_date || new Date().toISOString(),
+                created_at: new Date().toISOString(),
+            };
+            mockDb.expenses.push(newExpense);
+            resolve(newExpense);
+        }, 300);
+    }),
+    deleteExpense: (userId: number, expenseId: number): Promise<void> => new Promise((resolve, reject) => {
+        setTimeout(() => {
+            const index = mockDb.expenses.findIndex(e => e.id === expenseId);
+            if (index > -1) {
+                mockDb.expenses.splice(index, 1);
+                resolve();
+            } else {
+                reject(new Error("Expense not found"));
+            }
+        }, 300);
+    }),
+    createPayment: (userId: number, projectId: number, data: Partial<ProjectPayment>): Promise<ProjectPayment> => new Promise(resolve => {
+        setTimeout(() => {
+            const newPayment: ProjectPayment = {
+                id: mockDb.payments.length + 1,
+                project_id: projectId,
+                amount: data.amount!,
+                description: data.description || '',
+                payment_date: data.payment_date || new Date().toISOString(),
+                created_at: new Date().toISOString(),
+            };
+            mockDb.payments.push(newPayment);
+            resolve(newPayment);
+        }, 300);
+    }),
+    deletePayment: (userId: number, paymentId: number): Promise<void> => new Promise((resolve, reject) => {
+        setTimeout(() => {
+            const index = mockDb.payments.findIndex(p => p.id === paymentId);
+            if (index > -1) {
+                mockDb.payments.splice(index, 1);
+                resolve();
+            } else {
+                reject(new Error("Payment not found"));
+            }
+        }, 300);
+    }),
+    createQuote: (userId: number, projectId: number, data: { title: string }): Promise<Quote> => new Promise(resolve => {
+        setTimeout(() => {
+            const newQuote: any = {
+                id: mockDb.quotes.length + 1,
+                project_id: projectId,
+                title: data.title,
+                public_id: Math.random().toString(36).substring(2, 12),
+                notes: '',
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+            };
+            mockDb.quotes.push(newQuote);
+            resolve(calculateQuoteTotals(newQuote, userId));
+        }, 300);
+    }),
+    deleteQuote: (userId: number, quoteId: number): Promise<void> => new Promise((resolve, reject) => {
+        setTimeout(() => {
+            const index = mockDb.quotes.findIndex(q => q.id === quoteId);
+            if (index > -1) {
+                // Also delete associated items
+                mockDb.quoteItems = mockDb.quoteItems.filter(item => item.quote_id !== quoteId);
+                mockDb.quotes.splice(index, 1);
+                resolve();
+            } else {
+                reject(new Error("Quote not found"));
+            }
+        }, 300);
+    }),
+    createQuoteItem: (userId: number, quoteId: number, data: Partial<QuoteItem>): Promise<QuoteItem> => new Promise(resolve => {
+        setTimeout(() => {
+            const newQuoteItem: QuoteItem = {
+                id: mockDb.quoteItems.length + 1,
+                quote_id: quoteId,
+                name: data.name!,
+                type: data.type!,
+                unit: data.unit!,
+                quantity: data.quantity!,
+                unit_price: data.unit_price!,
+                total_price: '', // Will be calculated
+                order: mockDb.quoteItems.filter(i => i.quote_id === quoteId).length + 1,
+                created_at: new Date().toISOString(),
+            };
+            newQuoteItem.total_price = (parseFloat(newQuoteItem.quantity) * parseFloat(newQuoteItem.unit_price)).toFixed(2);
+            mockDb.quoteItems.push(newQuoteItem);
+            resolve(newQuoteItem);
+        }, 300);
+    }),
+    deleteQuoteItem: (userId: number, itemId: number): Promise<void> => new Promise((resolve, reject) => {
+        setTimeout(() => {
+            const index = mockDb.quoteItems.findIndex(i => i.id === itemId);
+            if (index > -1) {
+                mockDb.quoteItems.splice(index, 1);
+                resolve();
+            } else {
+                reject(new Error("Quote item not found"));
+            }
+        }, 300);
+    }),
 };
 
-const calculateQuoteTotals = (quote: any): Quote => {
+const calculateQuoteTotals = (quote: any, userId: number): Quote => {
     const items = mockDb.quoteItems.filter(i => i.quote_id === quote.id).map(item => ({...item, total_price: (parseFloat(item.quantity) * parseFloat(item.unit_price)).toFixed(2) }));
     const work_amount = items.filter(i => i.type === 'work').reduce((sum, i) => sum + parseFloat(i.total_price), 0);
     const material_amount = items.filter(i => i.type === 'material').reduce((sum, i) => sum + parseFloat(i.total_price), 0);
@@ -223,8 +335,8 @@ const calculateQuoteTotals = (quote: any): Quote => {
     return { ...quote, items, work_amount: work_amount.toFixed(2), material_amount: material_amount.toFixed(2), total_amount: total_amount.toFixed(2) };
 };
 
-const calculateProjectTotals = (project: any): Project => {
-    const quotes = mockDb.quotes.filter(q => q.project_id === project.id).map(calculateQuoteTotals);
+const calculateProjectTotals = (project: any, userId: number): Project => {
+    const quotes = mockDb.quotes.filter(q => q.project_id === project.id).map(q => calculateQuoteTotals(q, userId));
     const total_quote_amount = quotes.reduce((sum, q) => sum + parseFloat(q.total_amount), 0);
     const total_expenses = mockDb.expenses.filter(e => e.project_id === project.id).reduce((sum, e) => sum + parseFloat(e.amount), 0);
     const total_payments_received = mockDb.payments.filter(p => p.project_id === project.id).reduce((sum, p) => sum + parseFloat(p.amount), 0);
@@ -235,49 +347,33 @@ const calculateProjectTotals = (project: any): Project => {
 };
 
 // --- SERVICES ---
+const getUserId = () => JSON.parse(localStorage.getItem('user_id') || 'null');
+
 const authService = {
   login: (data: LoginData) => mockApi.login(data),
   register: (data: RegisterData) => mockApi.register(data),
-  getProfile: () => {
-    const userId = JSON.parse(localStorage.getItem('user_id') || 'null');
-    if (!userId) return Promise.reject("Not logged in");
-    return mockApi.getProfile(userId);
-  },
-  updateProfile: (data: Partial<User>) => {
-    const userId = JSON.parse(localStorage.getItem('user_id') || 'null');
-    if (!userId) return Promise.reject("Not logged in");
-    return mockApi.updateProfile(userId, data);
-  }
+  getProfile: () => mockApi.getProfile(getUserId()),
+  updateProfile: (data: Partial<User>) => mockApi.updateProfile(getUserId(), data)
 };
 
 const projectsService = {
-  getProjects: (params: { status?: string, search?: string }) => {
-    const userId = JSON.parse(localStorage.getItem('user_id') || 'null');
-    return mockApi.getProjects(userId, params);
-  },
-  getProject: (id: number) => {
-    const userId = JSON.parse(localStorage.getItem('user_id') || 'null');
-    return mockApi.getProject(userId, id);
-  },
-   createProject: (data: Partial<Project>) => {
-    const userId = JSON.parse(localStorage.getItem('user_id') || 'null');
-    return mockApi.createProject(userId, data);
-  },
-  getClients: () => {
-    const userId = JSON.parse(localStorage.getItem('user_id') || 'null');
-    return mockApi.getClients(userId);
-  },
-  createClient: (data: Partial<Client>) => {
-    const userId = JSON.parse(localStorage.getItem('user_id') || 'null');
-    return mockApi.createClient(userId, data);
-  }
+  getProjects: (params: { status?: string, search?: string }) => mockApi.getProjects(getUserId(), params),
+  getProject: (id: number) => mockApi.getProject(getUserId(), id),
+  createProject: (data: Partial<Project>) => mockApi.createProject(getUserId(), data),
+  getClients: () => mockApi.getClients(getUserId()),
+  createClient: (data: Partial<Client>) => mockApi.createClient(getUserId(), data),
+  createExpense: (projectId: number, data: Partial<Expense>) => mockApi.createExpense(getUserId(), projectId, data),
+  deleteExpense: (expenseId: number) => mockApi.deleteExpense(getUserId(), expenseId),
+  createPayment: (projectId: number, data: Partial<ProjectPayment>) => mockApi.createPayment(getUserId(), projectId, data),
+  deletePayment: (paymentId: number) => mockApi.deletePayment(getUserId(), paymentId),
+  createQuote: (projectId: number, data: { title: string }) => mockApi.createQuote(getUserId(), projectId, data),
+  deleteQuote: (quoteId: number) => mockApi.deleteQuote(getUserId(), quoteId),
 };
 
 const quotesService = {
-  getQuote: (id: number) => {
-    const userId = JSON.parse(localStorage.getItem('user_id') || 'null');
-    return mockApi.getQuote(userId, id);
-  },
+  getQuote: (id: number) => mockApi.getQuote(getUserId(), id),
+  createItem: (quoteId: number, data: Partial<QuoteItem>) => mockApi.createQuoteItem(getUserId(), quoteId, data),
+  deleteItem: (itemId: number) => mockApi.deleteQuoteItem(getUserId(), itemId),
 };
 
 // --- UI COMPONENTS ---
@@ -292,6 +388,36 @@ const Button: React.FC<React.ButtonHTMLAttributes<HTMLButtonElement> & { variant
     </button>
   );
 };
+
+const Modal: React.FC<{ isOpen: boolean; onClose: () => void; title: string; children: React.ReactNode; }> = ({ isOpen, onClose, title, children }) => (
+    <Transition appear show={isOpen} as={Fragment}>
+        <Dialog as="div" className="relative z-30" onClose={onClose}>
+            <Transition.Child as={Fragment} enter="ease-out duration-300" enterFrom="opacity-0" enterTo="opacity-100" leave="ease-in duration-200" leaveFrom="opacity-100" leaveTo="opacity-0">
+                <div className="modal-overlay" />
+            </Transition.Child>
+            <div className="fixed inset-0 overflow-y-auto"><div className="flex min-h-full items-center justify-center p-4 text-center">
+                <Transition.Child as={Fragment} enter="ease-out duration-300" enterFrom="opacity-0 scale-95" enterTo="opacity-100 scale-100" leave="ease-in duration-200" leaveFrom="opacity-100 scale-100" leaveTo="opacity-0 scale-95">
+                    <Dialog.Panel className="modal-panel sm:max-w-lg">
+                        <div className="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+                            <Dialog.Title as="h3" className="text-lg font-semibold leading-6 text-gray-900">{title}</Dialog.Title>
+                            <div className="mt-4">{children}</div>
+                        </div>
+                    </Dialog.Panel>
+                </Transition.Child>
+            </div></div>
+        </Dialog>
+    </Transition>
+);
+
+const ConfirmationModal: React.FC<{ isOpen: boolean; onClose: () => void; onConfirm: () => void; title: string; message: string; }> = ({ isOpen, onClose, onConfirm, title, message }) => (
+    <Modal isOpen={isOpen} onClose={onClose} title={title}>
+        <p className="text-sm text-gray-500">{message}</p>
+        <div className="mt-5 sm:mt-4 sm:flex sm:flex-row-reverse gap-3">
+            <Button variant="danger" onClick={onConfirm}>Удалить</Button>
+            <Button variant="outline" onClick={onClose}>Отмена</Button>
+        </div>
+    </Modal>
+);
 
 const Header: React.FC = () => {
     const { user, logout } = useAuth();
@@ -558,16 +684,94 @@ const CreateProjectPage: React.FC = () => {
     );
 };
 
+const AddExpenseForm: React.FC<{ projectId: number; onClose: () => void }> = ({ projectId, onClose }) => {
+    const queryClient = useTanstackQueryClient();
+    const { register, handleSubmit, formState: { errors } } = useForm<Partial<Expense>>();
+    const addExpenseMutation = useMutation<Expense, Error, Partial<Expense>>({
+        mutationFn: (data) => projectsService.createExpense(projectId, data),
+        onSuccess: () => {
+            toast.success("Расход добавлен");
+            queryClient.invalidateQueries({ queryKey: ['project', projectId] });
+            onClose();
+        },
+        onError: () => toast.error("Ошибка добавления расхода"),
+    });
+    const onSubmit = (data: Partial<Expense>) => addExpenseMutation.mutateAsync(data);
+
+    return (
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+            <div><label className="form-label">Сумма *</label><input type="number" className="form-input" {...register('amount', { required: true, valueAsNumber: true })} /></div>
+            <div><label className="form-label">Описание</label><input type="text" className="form-input" {...register('description')} /></div>
+            <div><label className="form-label">Дата *</label><input type="date" className="form-input" defaultValue={format(new Date(), 'yyyy-MM-dd')} {...register('expense_date', { required: true })} /></div>
+            <div className="flex justify-end gap-3 pt-2"><Button variant="outline" type="button" onClick={onClose}>Отмена</Button><Button type="submit" loading={addExpenseMutation.isPending}>Добавить</Button></div>
+        </form>
+    );
+};
+
+const AddPaymentForm: React.FC<{ projectId: number; onClose: () => void }> = ({ projectId, onClose }) => {
+    const queryClient = useTanstackQueryClient();
+    const { register, handleSubmit, formState: { errors } } = useForm<Partial<ProjectPayment>>();
+    const addPaymentMutation = useMutation<ProjectPayment, Error, Partial<ProjectPayment>>({
+        mutationFn: (data) => projectsService.createPayment(projectId, data),
+        onSuccess: () => {
+            toast.success("Платеж добавлен");
+            queryClient.invalidateQueries({ queryKey: ['project', projectId] });
+            onClose();
+        },
+        onError: () => toast.error("Ошибка добавления платежа"),
+    });
+    const onSubmit = (data: Partial<ProjectPayment>) => addPaymentMutation.mutateAsync(data);
+
+    return (
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+            <div><label className="form-label">Сумма *</label><input type="number" className="form-input" {...register('amount', { required: true, valueAsNumber: true })} /></div>
+            <div><label className="form-label">Описание</label><input type="text" className="form-input" {...register('description')} /></div>
+            <div><label className="form-label">Дата *</label><input type="date" className="form-input" defaultValue={format(new Date(), 'yyyy-MM-dd')} {...register('payment_date', { required: true })} /></div>
+            <div className="flex justify-end gap-3 pt-2"><Button variant="outline" type="button" onClick={onClose}>Отмена</Button><Button type="submit" loading={addPaymentMutation.isPending}>Добавить</Button></div>
+        </form>
+    );
+};
+
 const ProjectDetailPage: React.FC = () => {
     const { id } = useParams<{ id: string }>();
-    const { data: project, isLoading, error } = useQuery<ProjectDetail, Error>({ queryKey: ['project', Number(id)], queryFn: () => projectsService.getProject(Number(id)), enabled: !!id });
+    const projectId = Number(id);
+    const queryClient = useTanstackQueryClient();
+    const { data: project, isLoading, error } = useQuery<ProjectDetail, Error>({ queryKey: ['project', projectId], queryFn: () => projectsService.getProject(projectId), enabled: !!id });
     const formatCurrency = (value: string | number) => new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', minimumFractionDigits: 0 }).format(Number(value));
 
+    const [modal, setModal] = useState<'addExpense' | 'addPayment' | 'deleteExpense' | 'deletePayment' | 'addQuote' | 'deleteQuote' | null>(null);
+    const [itemToDelete, setItemToDelete] = useState<Expense | ProjectPayment | Quote | null>(null);
+
+    const deleteExpenseMutation = useMutation<void, Error, number>({
+        mutationFn: projectsService.deleteExpense,
+        onSuccess: () => { toast.success("Расход удален"); queryClient.invalidateQueries({ queryKey: ['project', projectId] }); },
+        onError: () => toast.error("Ошибка удаления расхода"),
+        onSettled: () => { setModal(null); setItemToDelete(null); }
+    });
+    
+    const deletePaymentMutation = useMutation<void, Error, number>({
+        mutationFn: projectsService.deletePayment,
+        onSuccess: () => { toast.success("Платеж удален"); queryClient.invalidateQueries({ queryKey: ['project', projectId] }); },
+        onError: () => toast.error("Ошибка удаления платежа"),
+        onSettled: () => { setModal(null); setItemToDelete(null); }
+    });
+
+    const handleDelete = () => {
+        if (itemToDelete) {
+            if (modal === 'deleteExpense') deleteExpenseMutation.mutate(itemToDelete.id);
+            if (modal === 'deletePayment') deletePaymentMutation.mutate(itemToDelete.id);
+        }
+    };
+    
     if (isLoading) return <div className="spinner h-8 w-8 mx-auto mt-10"></div>;
     if (error || !project) return <div className="text-center text-red-600">Не удалось загрузить проект.</div>;
     
     return (
-        <div className="space-y-6"><div><Link to="/projects" className="flex items-center text-sm text-gray-500 hover:text-gray-700 mb-4"><ArrowLeft size={16} className="mr-2" />Назад к проектам</Link><div className="flex flex-col sm:flex-row sm:items-center sm:justify-between"><div><h1 className="text-2xl font-bold text-gray-900">{project.title}</h1><p className="mt-1 text-sm text-gray-500">{project.address}</p></div><div className="mt-4 sm:mt-0"><Button variant="outline"><Edit size={16} className="mr-2" />Редактировать</Button></div></div></div><div className="grid grid-cols-2 md:grid-cols-4 gap-4"><div className="card text-center"><p className="text-sm text-gray-500">Сумма смет</p><p className="text-xl font-bold currency">{formatCurrency(project.total_quote_amount)}</p></div><div className="card text-center"><p className="text-sm text-gray-500">Расходы</p><p className="text-xl font-bold currency">{formatCurrency(project.total_expenses)}</p></div><div className="card text-center"><p className="text-sm text-gray-500">Оплачено</p><p className="text-xl font-bold currency">{formatCurrency(project.total_payments_received)}</p></div><div className="card text-center"><p className="text-sm text-gray-500">Прибыль</p><p className={clsx('text-xl font-bold currency', Number(project.expected_profit) >= 0 ? 'currency-positive' : 'currency-negative')}>{formatCurrency(project.expected_profit)}</p></div></div><div className="grid grid-cols-1 lg:grid-cols-2 gap-6"><div className="card space-y-4"><div className="flex justify-between items-center"><h2 className="text-lg font-semibold flex items-center"><FileText size={20} className="mr-2" />Сметы</h2><Button size="sm"><Plus size={14} className="mr-1" />Создать смету</Button></div>{project.quotes.length > 0 ? <ul className="divide-y">{project.quotes.map(quote => <li key={quote.id} className="py-2 flex justify-between items-center"><Link to={`/quotes/${quote.id}`} className="text-blue-600 hover:underline">{quote.title}</Link><span className="font-medium currency">{formatCurrency(quote.total_amount)}</span></li>)}</ul> : <p className="text-sm text-gray-500 text-center py-4">Смет пока нет</p>}</div><div className="card space-y-4"><div className="flex justify-between items-center"><h2 className="text-lg font-semibold flex items-center"><Receipt size={20} className="mr-2" />Расходы</h2><Button size="sm"><Plus size={14} className="mr-1" />Добавить расход</Button></div>{project.expenses.length > 0 ? <ul className="divide-y">{project.expenses.map(expense => <li key={expense.id} className="py-2 flex justify-between items-center"><span>{expense.description || "Расход"} <span className="text-xs text-gray-400">({new Date(expense.expense_date).toLocaleDateString()})</span></span><span className="font-medium currency">{formatCurrency(expense.amount)}</span></li>)}</ul> : <p className="text-sm text-gray-500 text-center py-4">Расходов пока нет</p>}</div></div></div>
+        <div className="space-y-6"><div><Link to="/projects" className="flex items-center text-sm text-gray-500 hover:text-gray-700 mb-4"><ArrowLeft size={16} className="mr-2" />Назад к проектам</Link><div className="flex flex-col sm:flex-row sm:items-center sm:justify-between"><div><h1 className="text-2xl font-bold text-gray-900">{project.title}</h1><p className="mt-1 text-sm text-gray-500">{project.address}</p></div><div className="mt-4 sm:mt-0"><Button variant="outline"><Edit size={16} className="mr-2" />Редактировать</Button></div></div></div><div className="grid grid-cols-2 md:grid-cols-4 gap-4"><div className="card text-center"><p className="text-sm text-gray-500">Сумма смет</p><p className="text-xl font-bold currency">{formatCurrency(project.total_quote_amount)}</p></div><div className="card text-center"><p className="text-sm text-gray-500">Расходы</p><p className="text-xl font-bold currency">{formatCurrency(project.total_expenses)}</p></div><div className="card text-center"><p className="text-sm text-gray-500">Оплачено</p><p className="text-xl font-bold currency">{formatCurrency(project.total_payments_received)}</p></div><div className="card text-center"><p className="text-sm text-gray-500">Прибыль</p><p className={clsx('text-xl font-bold currency', Number(project.expected_profit) >= 0 ? 'currency-positive' : 'currency-negative')}>{formatCurrency(project.expected_profit)}</p></div></div><div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6"><div className="card space-y-4"><div className="flex justify-between items-center"><h2 className="text-lg font-semibold flex items-center"><FileText size={20} className="mr-2" />Сметы</h2><Button size="sm"><Plus size={14} className="mr-1" />Создать смету</Button></div>{project.quotes.length > 0 ? <ul className="divide-y">{project.quotes.map(quote => <li key={quote.id} className="py-2 flex justify-between items-center"><Link to={`/quotes/${quote.id}`} className="text-blue-600 hover:underline">{quote.title}</Link><span className="font-medium currency">{formatCurrency(quote.total_amount)}</span></li>)}</ul> : <p className="text-sm text-gray-500 text-center py-4">Смет пока нет</p>}</div><div className="card space-y-4"><div className="flex justify-between items-center"><h2 className="text-lg font-semibold flex items-center"><Receipt size={20} className="mr-2" />Расходы</h2><Button size="sm" onClick={() => setModal('addExpense')}><Plus size={14} className="mr-1" />Добавить</Button></div>{project.expenses.length > 0 ? <ul className="divide-y">{project.expenses.map(expense => <li key={expense.id} className="py-2 flex justify-between items-center group"><div><p>{expense.description || "Расход"}</p><p className="text-xs text-gray-400">{format(new Date(expense.expense_date), 'dd.MM.yyyy')}</p></div><div className="flex items-center"><span className="font-medium currency mr-4">{formatCurrency(expense.amount)}</span><button onClick={() => { setItemToDelete(expense); setModal('deleteExpense'); }} className="text-gray-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 size={16}/></button></div></li>)}</ul> : <p className="text-sm text-gray-500 text-center py-4">Расходов пока нет</p>}</div><div className="card space-y-4"><div className="flex justify-between items-center"><h2 className="text-lg font-semibold flex items-center"><Banknote size={20} className="mr-2" />Платежи</h2><Button size="sm" onClick={() => setModal('addPayment')}><Plus size={14} className="mr-1" />Добавить</Button></div>{project.payments_received.length > 0 ? <ul className="divide-y">{project.payments_received.map(payment => <li key={payment.id} className="py-2 flex justify-between items-center group"><div><p>{payment.description || "Платеж"}</p><p className="text-xs text-gray-400">{format(new Date(payment.payment_date), 'dd.MM.yyyy')}</p></div><div className="flex items-center"><span className="font-medium currency mr-4">{formatCurrency(payment.amount)}</span><button onClick={() => { setItemToDelete(payment); setModal('deletePayment'); }} className="text-gray-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 size={16}/></button></div></li>)}</ul> : <p className="text-sm text-gray-500 text-center py-4">Платежей пока нет</p>}</div></div>
+            <Modal isOpen={modal === 'addExpense'} onClose={() => setModal(null)} title="Добавить расход"><AddExpenseForm projectId={projectId} onClose={() => setModal(null)}/></Modal>
+            <Modal isOpen={modal === 'addPayment'} onClose={() => setModal(null)} title="Добавить платеж"><AddPaymentForm projectId={projectId} onClose={() => setModal(null)}/></Modal>
+            <ConfirmationModal isOpen={modal === 'deleteExpense' || modal === 'deletePayment'} onClose={() => setModal(null)} onConfirm={handleDelete} title="Подтвердите удаление" message="Вы уверены, что хотите удалить эту запись? Это действие необратимо."/>
+        </div>
     );
 };
 

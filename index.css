@@ -60,3 +60,12 @@ body {
 .status-archived {
   @apply bg-gray-100 text-gray-800 px-2 py-1 rounded-full text-xs font-medium;
 }
+
+/* Стили для модальных окон */
+.modal-overlay {
+  @apply fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity;
+}
+
+.modal-panel {
+  @apply relative transform overflow-hidden rounded-lg bg-white text-left shadow-xl transition-all sm:my-8 sm:w-full;
+}
